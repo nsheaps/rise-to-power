@@ -49,6 +49,8 @@ class PickingTest {
     }
 
     private fun tap(view: GameView, x: Float, y: Float) {
+        // Keep consecutive taps apart so they are not read as a double tap.
+        Thread.sleep(400)
         val t = SystemClock.uptimeMillis()
         view.injectTouch(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0))
         view.injectTouch(MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, x, y, 0))
@@ -137,5 +139,28 @@ class PickingTest {
             break
         }
         assertTrue(tested > 0)
+    }
+
+    @Test
+    fun ownUnitBehindBuildingCanBeSelected() {
+        val view = launch()
+        val world = view.world
+        val tc = world.townCenters(view.humanId).first()
+        view.camera.centerOn(tc.x, tc.y)
+        val cam = view.camera
+        val s = cam.scale
+        // Just behind the town centre's back-left wall, as in a player's report: the head shows above
+        // the wall but the old box silhouette swallowed the tap.
+        val peeking = world.spawnUnit(view.humanId, UnitType.VILLAGER, tc.minX - 0.3f, tc.minY + 0.8f)
+        // Right behind the keep, hidden entirely; drawn as a silhouette and still selectable.
+        val hidden = world.spawnUnit(view.humanId, UnitType.VILLAGER, tc.minX + 0.2f, tc.minY + 0.2f)
+        for (u in listOf(peeking, hidden)) {
+            assertTrue(u.x + u.y < tc.x + tc.y)
+            tap(view, cam.sx(u.x, u.y), cam.sy(u.x, u.y) - 20f * s)
+            assertEquals("selected after tapping ${describe(u)}", setOf(u.id), view.ui.selection.toSet())
+        }
+        // The town centre itself is still selectable where no unit is in the way.
+        tap(view, cam.sx(tc.maxX - 0.3f, tc.maxY - 0.3f), cam.sy(tc.maxX - 0.3f, tc.maxY - 0.3f) - 6f * s)
+        assertEquals(setOf(tc.id), view.ui.selection.toSet())
     }
 }
