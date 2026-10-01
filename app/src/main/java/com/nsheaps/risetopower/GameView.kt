@@ -9,6 +9,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import com.nsheaps.risetopower.core.Building
 import com.nsheaps.risetopower.core.BuildingType
+import com.nsheaps.risetopower.core.Command
 import com.nsheaps.risetopower.core.Entity
 import com.nsheaps.risetopower.core.EventType
 import com.nsheaps.risetopower.core.GameUnit
@@ -19,6 +20,7 @@ import com.nsheaps.risetopower.core.SoundCue
 import com.nsheaps.risetopower.core.Tech
 import com.nsheaps.risetopower.core.UnitType
 import com.nsheaps.risetopower.core.World
+import com.nsheaps.risetopower.core.net.Lockstep
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -34,11 +36,17 @@ class Ping(val x: Float, val y: Float, var t: Float = 0f)
  * processed on the game thread, so all game state is only ever touched from one thread.
  */
 @SuppressLint("ViewConstructor")
-class GameView(private val activity: GameActivity, val world: World, private val sfx: Sfx) : SurfaceView(activity), SurfaceHolder.Callback, Runnable {
-    val humanId = world.players.indexOfFirst { it.isHuman }.coerceAtLeast(0)
+class GameView(private val activity: GameActivity, val session: Lockstep, private val sfx: Sfx) : SurfaceView(activity), SurfaceHolder.Callback, Runnable {
+    /** The simulation; replaced if a networked game has to resynchronise. */
+    var world: World = session.world
+        private set
+    val humanId = session.localPlayer
+    /** A game against other devices: no pausing, fixed speed, no saving. */
+    val multiplayer = !session.offline
     private val d = resources.displayMetrics.density
     val camera = IsoCamera(d)
-    internal val picker by lazy { Picker(world, humanId, camera, d) }
+    internal var picker = Picker(world, humanId, camera, d)
+        private set
     val ui = UiState()
     var layers: TerrainLayers? = null
     private var renderer: Renderer? = null
@@ -60,13 +68,20 @@ class GameView(private val activity: GameActivity, val world: World, private val
     private var shownGameOver = false
     private var fogTimer = 0f
     private var miniTimer = 0f
-    private var accumulator = 0f
     private var idleCycle = 0
 
     private enum class Mode { NONE, PLACE, RALLY, ATTACK_MOVE }
     private var mode = Mode.NONE
 
     init {
+        session.onWorldReplaced = { w ->
+            // A networked game was resynchronised: rebuild everything that draws the old world.
+            world = w
+            picker = Picker(w, humanId, camera, d)
+            layers?.recycle()
+            layers = null
+            ensureInitialized()
+        }
         holder.addCallback(this)
         isFocusable = true
         camera.mapW = world.map.width
@@ -131,17 +146,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
             processTouches()
             applyPendingPause()
             checkLongPress()
-            val simulating = !paused && hud!!.menu == Hud.Menu.NONE && !(world.gameOver && !spectating)
-            if (simulating) {
-                accumulator += dt * speeds[speedIndex]
-                var steps = 0
-                while (accumulator >= World.TICK && steps < 8) {
-                    world.update(World.TICK)
-                    accumulator -= World.TICK
-                    steps++
-                }
-                if (steps == 8) accumulator = 0f
-            }
+            val simulating = simulate(dt)
             drainEvents()
             updateLayers(dt)
             pruneSelection()
@@ -162,6 +167,24 @@ class GameView(private val activity: GameActivity, val world: World, private val
             if (frame < 15) try { Thread.sleep(15 - frame) } catch (_: InterruptedException) {}
         }
     }
+
+    /**
+     * Advances the game by [dt] seconds of real time; returns whether time is running. Networked
+     * games never pause: the other players' games keep going.
+     */
+    internal fun simulate(dt: Float): Boolean {
+        if (world.gameOver && !spectating) return false
+        if (multiplayer) {
+            session.update(dt)
+            return session.waitingFor == null
+        }
+        if (paused || hud?.menu != Hud.Menu.NONE) return false
+        session.update(dt * speeds[speedIndex])
+        return true
+    }
+
+    /** Issues a command for the local player (applied now offline, or at a later turn online). */
+    fun issue(c: Command) = session.issue(c)
 
     /** Prepares layers, renderer and HUD without a surface (used by tests and the loading frame). */
     fun ensureInitialized() {
@@ -473,7 +496,8 @@ class GameView(private val activity: GameActivity, val world: World, private val
         when (mode) {
             Mode.PLACE -> { tapPlace(); return }
             Mode.RALLY -> {
-                ui.selection.mapNotNull { world.building(it) }.filter { it.owner == humanId }.forEach { world.setRally(it.id, wx, wy) }
+                val ids = ui.selection.mapNotNull { world.building(it) }.filter { it.owner == humanId }.map { it.id }
+                if (ids.isNotEmpty()) issue(Command.Rally(ids, wx, wy))
                 ui.effects += Effect(Effect.MOVE_MARK, wx, wy, 0f, 0.6f)
                 sfx.play(Sfx.Kind.ACK, 0.5f)
                 mode = Mode.NONE
@@ -481,7 +505,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
             }
             Mode.ATTACK_MOVE -> {
                 val ids = ownSelectedUnits().map { it.id }
-                world.commandMove(ids, wx, wy, attackMove = true)
+                if (ids.isNotEmpty()) issue(Command.Move(ids, wx, wy, attackMove = true))
                 ui.effects += Effect(Effect.ATTACK_MARK, wx, wy, 0f, 0.6f)
                 sfx.play(Sfx.Kind.ACK, 0.5f)
                 mode = Mode.NONE
@@ -514,7 +538,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
                 select(e)
                 return
             }
-            world.commandSmart(humanId, units.map { it.id }, wx, wy, e)
+            issue(Command.Smart(units.map { it.id }, wx, wy, e?.id ?: -1))
             val attack = e != null && world.isEnemy(humanId, e.owner)
             ui.effects += Effect(if (attack) Effect.ATTACK_MARK else Effect.MOVE_MARK, e?.x ?: wx, e?.y ?: wy, 0f, 0.6f)
             sfx.play(Sfx.Kind.ACK, 0.45f, 150)
@@ -586,9 +610,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
                 placementTouched = true
                 return
             }
-            val placed = world.placeWall(humanId, start.first, start.second, wx.toInt(), wy.toInt(), builders)
-            if (placed > 0) sfx.play(Sfx.Kind.ACK, 0.5f)
-            cancelMode()
+            placeWall(start.first, start.second, wx.toInt(), wy.toInt(), builders)
             return
         }
         // First tap positions the ghost, a second tap on the same spot confirms.
@@ -599,13 +621,46 @@ class GameView(private val activity: GameActivity, val world: World, private val
             hud?.showTooltip(if (err == null) "Tap again to build ${t.displayName}" else err)
             return
         }
-        val b = world.placeFoundation(humanId, t, tx, ty, builders)
-        if (b != null) {
-            sfx.play(Sfx.Kind.ACK, 0.5f)
-            hud?.showTooltip(null)
-            cancelMode()
-        }
+        place(t, tx, ty, builders)
     }
+
+    private fun place(t: BuildingType, tx: Int, ty: Int, builders: List<Int>) {
+        val err = world.placementError(humanId, t, tx, ty)
+        if (err != null) {
+            hud?.showTooltip(err)
+            sfx.play(Sfx.Kind.ERROR, 0.5f)
+            return
+        }
+        issue(Command.Place(t, tx, ty, builders))
+        sfx.play(Sfx.Kind.ACK, 0.5f)
+        hud?.showTooltip(null)
+        cancelMode()
+    }
+
+    private fun placeWall(x0: Int, y0: Int, x1: Int, y1: Int, builders: List<Int>) {
+        issue(Command.Wall(x0, y0, x1, y1, builders))
+        sfx.play(Sfx.Kind.ACK, 0.5f)
+        cancelMode()
+    }
+
+    /** The "Build here" button: builds at the outline shown, without tapping it. */
+    fun confirmPlacement() {
+        val t = ui.placing ?: return
+        val builders = ownSelectedUnits().filter { it.type == UnitType.VILLAGER }.map { it.id }
+        if (t == BuildingType.WALL) {
+            val start = ui.wallStart
+            if (start == null) {
+                // The outline keeps following the screen centre to show where the wall ends.
+                ui.wallStart = Pair(ui.placeX, ui.placeY)
+                return
+            }
+            placeWall(start.first, start.second, ui.placeX, ui.placeY, builders)
+            return
+        }
+        place(t, ui.placeX, ui.placeY, builders)
+    }
+
+    fun placementLabel(): String = if (ui.placing == BuildingType.WALL && ui.wallStart == null) "Start here" else "Build here"
 
     // ------------------------------------------------------------------ actions used by the HUD
 
@@ -614,7 +669,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
     fun modeHint(): String? = when (mode) {
         Mode.PLACE -> if (ui.placing == BuildingType.WALL) {
             if (ui.wallStart == null) "Tap where the wall starts" else "Tap where the wall ends"
-        } else "Tap to position the ${ui.placing?.displayName}, tap again to build"
+        } else "Scroll or tap to move the ${ui.placing?.displayName}, then press Build here"
         Mode.RALLY -> "Tap to set the rally point"
         Mode.ATTACK_MOVE -> "Tap a destination to attack-move"
         Mode.NONE -> null
@@ -638,26 +693,21 @@ class GameView(private val activity: GameActivity, val world: World, private val
     fun startRally() { mode = Mode.RALLY }
     fun startAttackMove() { mode = Mode.ATTACK_MOVE }
 
-    fun stopSelected() = world.commandStop(ownSelectedUnits().map { it.id })
-    fun returnResources() = world.commandReturn(ownSelectedUnits().map { it.id })
+    fun stopSelected() = issue(Command.Stop(ownSelectedUnits().map { it.id }))
+    fun returnResources() = issue(Command.Return(ownSelectedUnits().map { it.id }))
 
     fun deleteSelected() {
-        for (id in ui.selection.toList()) world.deleteOwn(humanId, id)
+        val own = ui.selection.filter { world.get(it)?.owner == humanId }
+        if (own.isNotEmpty()) issue(Command.Delete(own))
         ui.selection.clear()
     }
 
-    fun train(b: Building, t: UnitType) = report(world.queueTrain(b.id, t))
-    fun research(b: Building, t: Tech) = report(world.queueResearch(b.id, t))
-    fun advance(b: Building) = report(world.queueAdvance(b.id))
-    fun trade(r: ResourceType, buy: Boolean) = report(world.marketTrade(humanId, r, buy))
-    fun cancelQueue(b: Building, index: Int) = world.cancelQueue(b.id, index)
-
-    private fun report(err: String?) {
-        if (err != null) {
-            hud?.message(err, 0xFFFFB060.toInt())
-            sfx.play(Sfx.Kind.ERROR, 0.5f)
-        }
-    }
+    // Problems such as missing resources come back as warning events once the command runs.
+    fun train(b: Building, t: UnitType) = issue(Command.Train(b.id, t))
+    fun research(b: Building, t: Tech) = issue(Command.Research(b.id, t))
+    fun advance(b: Building) = issue(Command.Advance(b.id))
+    fun trade(r: ResourceType, buy: Boolean) = issue(Command.Trade(r, buy))
+    fun cancelQueue(b: Building, index: Int) = issue(Command.CancelQueue(b.id, index))
 
     fun selectIdleVillager() {
         val idle = world.units.filter { it.alive && it.owner == humanId && it.type == UnitType.VILLAGER && it.order == OrderType.IDLE }
@@ -686,7 +736,16 @@ class GameView(private val activity: GameActivity, val world: World, private val
 
     fun speedLabel() = when (speeds[speedIndex]) { 1f -> "1x"; 1.5f -> "1.5x"; 2f -> "2x"; else -> "3x" }
 
-    fun cycleSpeed() { speedIndex = (speedIndex + 1) % speeds.size }
+    fun cycleSpeed() {
+        if (multiplayer) { hud?.showTooltip("Speed is fixed in multiplayer games"); return }
+        speedIndex = (speedIndex + 1) % speeds.size
+    }
+
+    /** Shown while a networked game waits for another device, e.g. "Waiting for Ana…". */
+    fun networkStatus(): String? {
+        val who = session.waitingFor ?: return null
+        return if (session.stalledFor > 0.6f) "Waiting for $who…" else null
+    }
 
     fun togglePause() {
         val h = hud ?: return
@@ -710,6 +769,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
     }
 
     fun saveGame() {
+        if (multiplayer) { hud?.message("Multiplayer games can't be saved"); hud?.menu = Hud.Menu.NONE; return }
         try {
             SaveStore.save(activity, world)
             hud?.message("Game saved", 0xFF9AD0FF.toInt())
@@ -720,12 +780,15 @@ class GameView(private val activity: GameActivity, val world: World, private val
     }
 
     fun resign() {
-        world.resign(humanId)
+        issue(Command.Resign)
         hud?.menu = Hud.Menu.NONE
     }
 
     fun quitToMenu(save: Boolean) {
-        if (save && !world.gameOver && !world.players[humanId].defeated) SaveStore.save(activity, world)
+        if (multiplayer) {
+            // The other devices resign this player when they get the goodbye.
+            session.leave()
+        } else if (save && !world.gameOver && !world.players[humanId].defeated) SaveStore.save(activity, world)
         running = false
         activity.runOnUiThread { activity.finish() }
     }

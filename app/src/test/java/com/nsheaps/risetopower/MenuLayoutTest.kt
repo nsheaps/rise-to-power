@@ -3,6 +3,7 @@ package com.nsheaps.risetopower
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -14,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -61,6 +63,31 @@ class MenuLayoutTest {
         activity.onBackPressed()
         click(activity, "How to Play")
         check(activity, "help", name)
+        activity.onBackPressed()
+
+        // Bluetooth multiplayer: with permissions granted and Bluetooth on, the lobbies open.
+        val app = shadowOf(activity.application)
+        app.grantPermissions(*Bluetooth.permissions())
+        shadowOf(Bluetooth.adapter(activity)!!).setEnabled(true)
+        click(activity, "Multiplayer")
+        check(activity, "multiplayer", name)
+        click(activity, "Host Game")
+        shadowOf(Looper.getMainLooper()).idle()
+        check(activity, "host", name)
+        for (label in listOf("Start", "Back")) {
+            val b = textViews(activity.window.decorView).first { it is Button && it.text == label }
+            val loc = IntArray(2)
+            b.getLocationInWindow(loc)
+            assertTrue("[$name] host $label button must be visible", loc[1] >= 0 && loc[1] + b.height <= activity.resources.displayMetrics.heightPixels)
+        }
+        assertTrue("Start needs a joined player", !textViews(activity.window.decorView).first { it is Button && it.text == "Start" }.isEnabled)
+        activity.onBackPressed()
+        click(activity, "Join Game")
+        shadowOf(Looper.getMainLooper()).idle()
+        check(activity, "join", name)
+        activity.onBackPressed()
+        activity.onBackPressed()
+        assertEquals("main", activity.root.tag)
     }
 
     /** Lays out the current screen, saves it and asserts all text fits. Returns the title view. */

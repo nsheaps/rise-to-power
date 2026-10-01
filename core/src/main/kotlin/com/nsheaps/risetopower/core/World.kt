@@ -1,11 +1,8 @@
 package com.nsheaps.risetopower.core
 
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -601,6 +598,51 @@ class World(val settings: GameSettings, generate: Boolean = true) {
 
     fun resign(owner: Int) {
         defeat(players[owner])
+    }
+
+    /**
+     * Applies a player's command. Only the player's own units and buildings are affected, so a
+     * command received over the network can never move someone else's army.
+     */
+    fun execute(owner: Int, c: Command) {
+        if (owner !in players.indices || players[owner].defeated || gameOver) return
+        fun units(ids: List<Int>) = ownUnits(owner, ids).map { it.id }
+        fun own(id: Int) = building(id)?.takeIf { it.owner == owner }
+        val err: String? = when (c) {
+            is Command.Smart -> { commandSmart(owner, c.ids, c.x, c.y, get(c.targetId)); null }
+            is Command.Move -> { commandMove(units(c.ids), c.x, c.y, c.attackMove); null }
+            is Command.Stop -> { commandStop(units(c.ids)); null }
+            is Command.Return -> { commandReturn(units(c.ids)); null }
+            is Command.Delete -> { for (id in c.ids) deleteOwn(owner, id); null }
+            is Command.Place -> { placeFoundation(owner, c.type, c.tx, c.ty, units(c.builders)); null }
+            is Command.Wall -> { placeWall(owner, c.x0, c.y0, c.x1, c.y1, units(c.builders)); null }
+            is Command.Train -> own(c.buildingId)?.let { queueTrain(it.id, c.unit) }
+            is Command.Research -> own(c.buildingId)?.let { queueResearch(it.id, c.tech) }
+            is Command.Advance -> own(c.buildingId)?.let { queueAdvance(it.id) }
+            is Command.CancelQueue -> { own(c.buildingId)?.let { cancelQueue(it.id, c.index) }; null }
+            is Command.Rally -> { for (id in c.buildingIds) own(id)?.let { setRally(it.id, c.x, c.y) }; null }
+            is Command.Trade -> marketTrade(owner, c.resource, c.buy)
+            Command.Resign -> { resign(owner); null }
+        }
+        if (err != null && players[owner].isHuman) emit(GameEvent(EventType.WARNING, owner, err))
+    }
+
+    /**
+     * Hash of the simulation state, used to detect when networked games drift apart. It covers
+     * everything that decides the outcome of the game: positions, health, orders and stockpiles.
+     */
+    fun checksum(): Long {
+        var h = 1125899906842597L
+        fun mix(v: Long) { h = (h xor v) * 0x100000001B3L }
+        fun mix(v: Int) = mix(v.toLong())
+        fun mix(v: Float) = mix(v.toRawBits())
+        mix(tick); mix(nextId)
+        for (p in players) { for (v in p.stock) mix(v); mix(p.age.ordinal); mix(p.popUsed); mix(if (p.defeated) 1 else 0) }
+        for (u in units) { mix(u.id); mix(u.x); mix(u.y); mix(u.hp); mix(u.order.ordinal); mix(u.targetId); mix(u.carryAmount) }
+        for (b in buildings) { mix(b.id); mix(b.hp); mix(b.progress); mix(b.queueProgress); mix(b.queue.size) }
+        for (n in nodes) { mix(n.id); mix(n.amount) }
+        for (pr in projectiles) { mix(pr.x); mix(pr.y) }
+        return h
     }
 
     // ------------------------------------------------------------------ simulation

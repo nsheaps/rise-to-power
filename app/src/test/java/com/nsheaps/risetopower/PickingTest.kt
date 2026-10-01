@@ -32,6 +32,7 @@ class PickingTest {
 
     private fun launch(): GameView {
         val intent = Intent().putExtra(GameActivity.EXTRA_MAP_SIZE, 0).putExtra(GameActivity.EXTRA_OPPONENTS, 1)
+            .putExtra(GameActivity.EXTRA_SEED, 7L)
         val activity = Robolectric.buildActivity(GameActivity::class.java, intent).setup().get()
         activity.awaitLoaded()
         shadowOf(Looper.getMainLooper()).idle()
@@ -159,8 +160,38 @@ class PickingTest {
             tap(view, cam.sx(u.x, u.y), cam.sy(u.x, u.y) - 20f * s)
             assertEquals("selected after tapping ${describe(u)}", setOf(u.id), view.ui.selection.toSet())
         }
-        // The town centre itself is still selectable where no unit is in the way.
-        tap(view, cam.sx(tc.maxX - 0.3f, tc.maxY - 0.3f), cam.sy(tc.maxX - 0.3f, tc.maxY - 0.3f) - 6f * s)
+        // The town centre itself is still selectable where no unit is in the way (the random map
+        // may put a starting citizen in front of it, so try a few spots along its front).
+        val front = listOf(0.3f, 0.8f, 1.3f, 1.8f).flatMap { k -> listOf(tc.maxX - k to tc.maxY - 0.3f, tc.maxX - 0.3f to tc.maxY - k) }
+            .map { (x, y) -> cam.sx(x, y) to cam.sy(x, y) - 6f * s }
+            .first { (px, py) -> view.picker.pick(px, py) == tc }
+        tap(view, front.first, front.second)
         assertEquals(setOf(tc.id), view.ui.selection.toSet())
+    }
+
+    @Test
+    fun buildHereButtonPlacesTheOutlinedBuilding() {
+        val view = launch()
+        val world = view.world
+        val tc = world.townCenters(view.humanId).first()
+        val vill = world.units.first { it.owner == view.humanId && it.type == UnitType.VILLAGER }
+        view.ui.selection.clear(); view.ui.selection += vill.id
+        val type = BuildingType.HOUSE
+        val spot = (4..12).flatMap { r -> (-r..r).flatMap { dx -> listOf(dx to -r, dx to r, -r to dx, r to dx) } }
+            .map { (dx, dy) -> tc.x.toInt() + dx to tc.y.toInt() + dy }
+            .first { (x, y) -> world.placementError(view.humanId, type, x, y) == null }
+        view.startPlacement(type)
+        view.camera.centerOn(spot.first + type.size / 2f, spot.second + type.size / 2f)
+        view.renderOffscreen(canvas, w, h)
+        val hud = view.hudForTest!!
+        val button = hud.buttons.firstOrNull { it.label == "Build here" }
+        assertTrue("Build here button: ${hud.buttons.map { it.label }}", button != null && button.enabled)
+        val before = world.buildings.count { it.owner == view.humanId }
+        tap(view, button!!.rect.centerX(), button.rect.centerY())
+        assertEquals(before + 1, world.buildings.count { it.owner == view.humanId })
+        val house = world.buildings.last { it.owner == view.humanId }
+        assertEquals(type, house.type)
+        assertTrue("citizen should build", vill.order == OrderType.BUILD)
+        assertTrue("placement ends", !view.hasMode())
     }
 }

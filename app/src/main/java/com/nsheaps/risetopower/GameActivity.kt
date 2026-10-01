@@ -15,6 +15,7 @@ import com.nsheaps.risetopower.core.MapSize
 import com.nsheaps.risetopower.core.MapType
 import com.nsheaps.risetopower.core.PlayerSetup
 import com.nsheaps.risetopower.core.World
+import com.nsheaps.risetopower.core.net.Lockstep
 import kotlin.random.Random
 
 private const val TAG = "RiseToPower"
@@ -37,27 +38,32 @@ class GameActivity : Activity() {
         // devices (input would time out and the system would kill the app), so build the
         // game in the background and swap the view in when it is ready.
         val load = intent.getBooleanExtra(EXTRA_LOAD, false)
+        val online = intent.getBooleanExtra(EXTRA_NET, false)
+        val net = if (online) NetGame.take() else null
         loader = Thread({
-            val world = try {
-                if (load) SaveStore.load(this) else newWorld()
+            val session = try {
+                // A networked game whose connection was lost (e.g. the app was restarted) can't resume.
+                if (online) net else (if (load) SaveStore.load(this) else newWorld())?.let { w ->
+                    Lockstep.local(w, w.players.indexOfFirst { it.isHuman }.coerceAtLeast(0))
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create the game", e)
                 null
             }
-            val s = if (world != null) Sfx(this) else null
-            runOnUiThread { onLoaded(world, s) }
+            val s = if (session != null) Sfx(this) else null
+            runOnUiThread { onLoaded(session, s) }
         }, "game-loader").also { it.start() }
     }
 
-    private fun onLoaded(world: World?, s: Sfx?) {
-        if (isFinishing || isDestroyed) { s?.release(); return }
-        if (world == null || s == null) {
+    private fun onLoaded(session: Lockstep?, s: Sfx?) {
+        if (isFinishing || isDestroyed) { s?.release(); session?.leave(); return }
+        if (session == null || s == null) {
             Toast.makeText(this, "Could not start the game", Toast.LENGTH_LONG).show()
             finish()
             return
         }
         sfx = s
-        val v = GameView(this, world, s)
+        val v = GameView(this, session, s)
         view = v
         setContentView(v)
         Immersive.apply(window)
@@ -79,7 +85,8 @@ class GameActivity : Activity() {
     }
 
     private fun newWorld(): World {
-        val rnd = Random(System.nanoTime())
+        // A fixed seed replays the same map and opponents (used by tests).
+        val rnd = Random(if (intent.hasExtra(EXTRA_SEED)) intent.getLongExtra(EXTRA_SEED, 0L) else System.nanoTime())
         val civ = Civ.entries[intent.getIntExtra(EXTRA_CIV, 0)]
         val opponents = intent.getIntExtra(EXTRA_OPPONENTS, 1)
         val difficulty = Difficulty.entries[intent.getIntExtra(EXTRA_DIFFICULTY, 1)]
@@ -121,7 +128,7 @@ class GameActivity : Activity() {
         if (v != null) {
             v.stop()
             val w = v.world
-            if (!isFinishing && !w.gameOver && !w.players[v.humanId].defeated) {
+            if (!v.multiplayer && !isFinishing && !w.gameOver && !w.players[v.humanId].defeated) {
                 try { SaveStore.save(this, w) } catch (_: Exception) {}
             }
         }
@@ -141,12 +148,16 @@ class GameActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Leaving the screen ends a networked game for this device.
+        view?.let { v -> if (v.multiplayer) Thread { v.session.leave() }.start() }
         view?.layers?.recycle()
         sfx?.release()
     }
 
     companion object {
         const val EXTRA_LOAD = "load"
+        const val EXTRA_NET = "net"
+        const val EXTRA_SEED = "seed"
         const val EXTRA_CIV = "civ"
         const val EXTRA_OPPONENTS = "opponents"
         const val EXTRA_DIFFICULTY = "difficulty"

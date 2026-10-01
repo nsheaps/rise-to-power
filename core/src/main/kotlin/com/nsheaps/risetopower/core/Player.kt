@@ -11,7 +11,8 @@ class Player(
 ) {
     val stock = FloatArray(4)
     var age = Age.ANCIENT
-    val techs = HashSet<Tech>()
+    // Ordered so that every device iterates (and saves) technologies identically.
+    val techs = LinkedHashSet<Tech>()
     var defeated = false
     var popUsed = 0
     var popCap = 0
