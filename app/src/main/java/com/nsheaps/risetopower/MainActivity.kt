@@ -24,10 +24,10 @@ import com.nsheaps.risetopower.core.MapType
 
 /** Main menu and new game setup, built from plain views. */
 class MainActivity : Activity() {
-    private lateinit var root: FrameLayout
-    private val prefs by lazy { getSharedPreferences("setup", Context.MODE_PRIVATE) }
+    internal lateinit var root: FrameLayout
+    internal val prefs by lazy { getSharedPreferences("setup", Context.MODE_PRIVATE) }
 
-    private val dp get() = resources.displayMetrics.density
+    internal val dp get() = resources.displayMetrics.density
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,19 +40,45 @@ class MainActivity : Activity() {
         Immersive.apply(window)
     }
 
+    private val multiplayer = MultiplayerMenu(this)
+
     override fun onResume() {
         super.onResume()
         Immersive.apply(window)
-        showMain()
+        // Bluetooth dialogs (permissions, "make visible") pause this screen; keep the lobby open.
+        if (!multiplayer.inLobby && root.tag != MultiplayerMenu.TAG_MENU) showMain()
     }
 
     override fun onBackPressed() {
-        if (root.tag == "setup" || root.tag == "help") showMain() else super.onBackPressed()
+        when (root.tag) {
+            "setup", "help", MultiplayerMenu.TAG_MENU -> showMain()
+            MultiplayerMenu.TAG_HOST, MultiplayerMenu.TAG_JOIN -> multiplayer.showMenu()
+            else -> super.onBackPressed()
+        }
     }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        multiplayer.onPermissionsResult(requestCode)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        multiplayer.onActivityResult(requestCode)
+    }
+
+    override fun onDestroy() {
+        multiplayer.leave()
+        super.onDestroy()
+    }
+
+    fun showMainMenu() = showMain()
 
     // ------------------------------------------------------------------ screens
 
     private fun showMain() {
+        multiplayer.leave()
         root.removeAllViews()
         root.tag = "main"
         val col = column()
@@ -65,6 +91,7 @@ class MainActivity : Activity() {
             })
         }
         col.addView(menuButton("New Game") { showSetup() })
+        col.addView(menuButton("Multiplayer") { multiplayer.showMenu() })
         col.addView(menuButton("How to Play") { showHelp() })
         col.addView(space(12))
         col.addView(subtitle("v${packageManager.getPackageInfo(packageName, 0).versionName}", 12f))
@@ -106,13 +133,8 @@ class MainActivity : Activity() {
         col.addView(space(8))
         col.addView(subtitle("Larger maps allow more opponents (Small 3, Medium 5, Large 7).", 12f))
 
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        buttons.addView(menuButton("Back", 140) { showMain() })
-        buttons.addView(menuButton("Start", 200) {
+        val back = menuButton("Back", 140) { showMain() }
+        val start = menuButton("Start", 200) {
             val size = MapSize.entries[mapSize.index]
             val maxOpp = MapGenerator.maxPlayers(size) - 1
             val opp = (opponents.index + 1).coerceAtMost(maxOpp)
@@ -127,17 +149,28 @@ class MainActivity : Activity() {
                 .putExtra(GameActivity.EXTRA_WONDER, wonder.index == 0)
                 .putExtra(GameActivity.EXTRA_REVEAL, reveal.index == 1)
             startActivity(intent)
-        })
-        // Options scroll; Back and Start stay pinned at the bottom so they are always reachable.
+        }
+        showPinned(col, back, start)
+    }
+
+    /** Shows [content] scrolling above a bar of [buttons] that stays pinned to the bottom. */
+    internal fun showPinned(content: View, vararg buttons: View) {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        for (b in buttons) bar.addView(b)
+        // Options scroll; the buttons stay pinned at the bottom so they are always reachable.
         val screen = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        screen.addView(scroll(col), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val bar = FrameLayout(this).apply {
+        screen.addView(scroll(content), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val holder = FrameLayout(this).apply {
             setBackgroundColor(0xCC140E09.toInt())
             val pad = (6 * dp).toInt()
             setPadding(pad, pad, pad, pad)
         }
-        bar.addView(buttons, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
-        screen.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        holder.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        screen.addView(holder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(screen, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
@@ -161,7 +194,7 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------------ widgets
 
-    private inner class Option(val key: String, val values: List<String>, default: Int) {
+    internal inner class Option(val key: String, val values: List<String>, default: Int) {
         var index = prefs.getInt(key, default).coerceIn(0, values.size - 1)
         var onChange: (() -> Unit)? = null
         val view: Button = styledButton(values[index], 220) {}.also { b ->
@@ -181,9 +214,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun option(key: String, values: List<String>, default: Int) = Option(key, values, default)
+    internal fun option(key: String, values: List<String>, default: Int) = Option(key, values, default)
 
-    private fun row(label: String, control: View): View {
+    internal fun row(label: String, control: View): View {
         val r = LinearLayout(this)
         r.orientation = LinearLayout.HORIZONTAL
         r.gravity = Gravity.CENTER_VERTICAL
@@ -201,14 +234,14 @@ class MainActivity : Activity() {
 
     // The column spans the screen width so every text view gets an exact width to wrap or
     // shrink against; wrap-content widths let text be measured narrower than it draws.
-    private fun column() = LinearLayout(this).apply {
+    internal fun column() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         val pad = (24 * dp).toInt()
         setPadding(pad, pad, pad, pad)
     }
 
-    private fun scroll(content: View) = ScrollView(this).apply {
+    internal fun scroll(content: View) = ScrollView(this).apply {
         isFillViewport = true
         val wrap = FrameLayout(this@MainActivity)
         wrap.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
@@ -216,7 +249,7 @@ class MainActivity : Activity() {
     }
 
     /** Single-line heading that shrinks to fit the screen width. */
-    private fun title(text: String, size: Float) = TextView(this).apply {
+    internal fun title(text: String, size: Float) = TextView(this).apply {
         this.text = text
         typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         setTextColor(0xFFE2B04A.toInt())
@@ -228,7 +261,7 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (size * 1.5f * dp * fontScale()).toInt())
     }
 
-    private fun subtitle(text: String, size: Float = 15f) = TextView(this).apply {
+    internal fun subtitle(text: String, size: Float = 15f) = TextView(this).apply {
         this.text = text
         textSize = size
         setTextColor(0xFFBFAF90.toInt())
@@ -239,13 +272,13 @@ class MainActivity : Activity() {
 
     private fun fontScale() = resources.configuration.fontScale.coerceAtLeast(1f)
 
-    private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, (h * dp).toInt()) }
+    internal fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, (h * dp).toInt()) }
 
-    private fun menuButton(text: String, width: Int = 260, onClick: () -> Unit) = styledButton(text, width, onClick).apply {
+    internal fun menuButton(text: String, width: Int = 260, onClick: () -> Unit) = styledButton(text, width, onClick).apply {
         textSize = 18f
     }
 
-    private fun styledButton(text: String, width: Int, onClick: () -> Unit) = Button(this).apply {
+    internal fun styledButton(text: String, width: Int, onClick: () -> Unit) = Button(this).apply {
         this.text = text
         isAllCaps = false
         textSize = 15f
@@ -285,6 +318,7 @@ Commands
 - With units selected, tap the ground to move, tap an enemy to attack, tap a resource to gather, or tap your unfinished building to help build it.
 - Attack-move: units engage anything they meet on the way.
 - Buildings: tap a button in the command panel to train units, research technologies, or set a rally point.
+- Placing a building: scroll the green outline where you want it and press Build here, or tap the spot twice.
 
 Economy
 - Citizens gather Food (berries, game, farms), Wood (trees), Gold and Stone (mines). Build Mills, Lumber Camps and Mining Camps near resources to shorten trips.
@@ -297,6 +331,11 @@ Ages and Territory
 
 Military
 - Spearmen beat cavalry, archers beat infantry, cavalry beats archers and siege, and siege destroys buildings. Healers mend wounded units.
+
+Multiplayer
+- Up to 4 phones can play together over Bluetooth. One player picks Multiplayer › Host Game; the others pick Join Game and choose the host's phone.
+- The host picks the map, AI opponents and whether players team up against the AIs, then presses Start.
+- Multiplayer games can't be paused or saved. If a phone disconnects, its player resigns and the game carries on.
         """.trimIndent()
     }
 }

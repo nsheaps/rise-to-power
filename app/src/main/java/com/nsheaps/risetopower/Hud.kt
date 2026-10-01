@@ -118,6 +118,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
         drawSelectionPanels(c)
         drawMessages(c, dt)
         drawModeBanner(c)
+        view.networkStatus()?.let { drawBanner(c, it, topH + 44f * d, 0xFFFFB060.toInt()) }
         if (ui.boxActive) {
             fill.color = 0x2280FF80
             c.drawRect(ui.box, fill)
@@ -317,11 +318,15 @@ class Hud(private val view: GameView, private val world: World, private val huma
 
     private fun drawModeBanner(c: Canvas) {
         val t = view.modeHint() ?: return
+        drawBanner(c, t, topH + 8f * d, 0xFFFFE070.toInt())
+    }
+
+    private fun drawBanner(c: Canvas, t: String, top: Float, color: Int) {
         text.textSize = 15f * d
         val tw = text.measureText(t)
-        val r = RectF(w / 2f - tw / 2f - 14f * d, topH + 8f * d, w / 2f + tw / 2f + 14f * d, topH + 36f * d)
+        val r = RectF(w / 2f - tw / 2f - 14f * d, top, w / 2f + tw / 2f + 14f * d, top + 28f * d)
         panel(c, r, 0xD0)
-        label(c, t, w / 2f, r.centerY() + 5f * d, 15f, 0xFFFFE070.toInt(), Paint.Align.CENTER)
+        label(c, t, w / 2f, r.centerY() + 5f * d, 15f, color, Paint.Align.CENTER)
     }
 
     private fun drawTooltip(c: Canvas, t: String) {
@@ -486,6 +491,12 @@ class Hud(private val view: GameView, private val world: World, private val huma
     private fun commandButtons(sel: List<Entity>): List<Cmd> {
         val out = ArrayList<Cmd>()
         if (view.hasMode()) {
+            val placing = ui.placing
+            if (placing != null) {
+                val ok = placing == BuildingType.WALL || ui.placeValid
+                val tip = if (ok) null else world.placementError(humanId, placing, ui.placeX, ui.placeY)
+                out += Cmd(view.placementLabel(), view.placementLabel(), enabled = ok, icon = textIcon("✓", 0xFF8CE07A.toInt()), tooltip = tip) { view.confirmPlacement() }
+            }
             out += Cmd("Cancel", icon = textIcon("✕", 0xFFFF8070.toInt())) { view.cancelMode() }
             return out
         }
@@ -720,7 +731,12 @@ class Hud(private val view: GameView, private val world: World, private val huma
     private fun drawPauseMenu(c: Canvas) {
         dim(c)
         val pw = 300f * d
-        val items = listOf<Pair<String, () -> Unit>>(
+        val items = if (view.multiplayer) listOf<Pair<String, () -> Unit>>(
+            "Back to Game" to { view.togglePause() },
+            "Statistics" to { menu = Menu.STATS },
+            "Resign" to { view.resign() },
+            "Leave Game" to { view.quitToMenu(save = false) },
+        ) else listOf<Pair<String, () -> Unit>>(
             "Resume" to { view.togglePause() },
             "Save Game" to { view.saveGame() },
             "Statistics" to { menu = Menu.STATS },
@@ -731,7 +747,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
         val ph = items.size * (bh + 8f * d) + 64f * d
         val r = RectF(w / 2 - pw / 2, h / 2 - ph / 2, w / 2 + pw / 2, h / 2 + ph / 2)
         panel(c, r, 0xF0)
-        label(c, "Paused", r.centerX(), r.top + 34f * d, 22f, 0xFFE2B04A.toInt(), Paint.Align.CENTER)
+        label(c, if (view.multiplayer) "Game keeps running" else "Paused", r.centerX(), r.top + 34f * d, 22f, 0xFFE2B04A.toInt(), Paint.Align.CENTER)
         var y = r.top + 50f * d
         for ((name, act) in items) {
             menuButton(c, RectF(r.left + 24f * d, y, r.right - 24f * d, y + bh), name, action = act)

@@ -1,9 +1,7 @@
 package com.nsheaps.risetopower.core
 
-import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 /**
  * Computer opponent. Runs a simple economy / build order / army state machine a few times per
