@@ -1,10 +1,13 @@
 package com.nsheaps.risetopower
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RectF
 import com.nsheaps.risetopower.TerrainLayers.Companion.lerpColor
 import com.nsheaps.risetopower.TerrainLayers.Companion.shade
@@ -63,6 +66,11 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private val materials = Materials()
     private val sprites = NatureSprites()
     private var time = 0f
+    private val probe = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+    private val probeCanvas = Canvas(probe)
+    private val ghostPaint = Paint()
+    private val occluders = ArrayList<Building>()
+    private val outline = FloatArray(12)
 
     private class DrawItem {
         var key = 0f
@@ -323,6 +331,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
                 3 -> drawMountain(c, d.tx, d.ty)
             }
         }
+        drawHiddenUnits(c)
 
         for (p in world.projectiles) {
             if (!visibleToHuman(p.x, p.y)) continue
@@ -692,15 +701,65 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         }
     }
 
+    /** Pixel-accurate hit test against the building body as drawn (shadows and bars excluded). */
+    fun buildingHit(b: Building, px: Float, py: Float): Boolean {
+        probe.eraseColor(0)
+        probeCanvas.save()
+        probeCanvas.translate(0.5f - px, 0.5f - py)
+        drawBuildingShape(probeCanvas, b)
+        probeCanvas.restore()
+        return Color.alpha(probe.getPixel(0, 0)) >= 128
+    }
+
+    private fun drawBuildingShape(c: Canvas, b: Building) {
+        val t = b.type
+        if (t == BuildingType.FARM) { drawFarm(c, b); return }
+        val inset = buildingInset(t)
+        val x0 = b.minX + inset; val y0 = b.minY + inset; val x1 = b.maxX - inset; val y1 = b.maxY - inset
+        if (!b.constructed) drawFoundation(c, b, x0, y0, x1, y1)
+        else drawBuildingBody(c, b, t, x0, y0, x1, y1, world.players[b.owner].color)
+    }
+
+    /**
+     * Own and allied units standing behind a building are drawn again on top as a translucent
+     * silhouette in their player colour, so they can still be seen and tapped.
+     */
+    private fun drawHiddenUnits(c: Canvas) {
+        occluders.clear()
+        for (d in items) if (d.kind == 1) occluders += d.ref as Building
+        if (occluders.isEmpty()) return
+        for (d in items) {
+            if (d.kind != 2) continue
+            val u = d.ref as GameUnit
+            if (u.owner != humanId && !world.isAlly(humanId, u.owner)) continue
+            if (!isHidden(u)) continue
+            val x = sx(u.x, u.y); val y = sy(u.x, u.y)
+            ghostPaint.colorFilter = PorterDuffColorFilter(world.players[u.owner].color, PorterDuff.Mode.SRC_IN)
+            ghostPaint.alpha = 0x90
+            c.saveLayer(x - 24f * s, y - 44f * s, x + 24f * s, y + 6f * s, ghostPaint)
+            figure(c, u)
+            c.restore()
+        }
+    }
+
+    /** True when the middle of [u]'s figure is covered by a building drawn in front of it. */
+    fun isHidden(u: GameUnit): Boolean {
+        val px = sx(u.x, u.y); val py = sy(u.x, u.y) - 16f * s
+        val key = u.x + u.y
+        for (b in occluders) {
+            if (b.x + b.y <= key || !b.alive) continue
+            if (!Picker.insideConvex(px, py, Picker.silhouette(b, cam, outline))) continue
+            if (buildingHit(b, px, py)) return true
+        }
+        return false
+    }
+
     // ------------------------------------------------------------------ units
 
     fun drawUnit(c: Canvas, u: GameUnit, selected: Boolean) {
         val x = sx(u.x, u.y); val y = sy(u.x, u.y)
         val p = world.players[u.owner]
         val color = p.color
-        // Screen-space facing: east in iso screen when cos-sin > 0.
-        val dirX = cos(u.facing) - sin(u.facing)
-        val dir = if (dirX >= 0f) 1f else -1f
         ellipse(c, 0x40000000, x, y, 7f * s * (if (isMounted(u.type)) 1.6f else 1f), 3f * s)
         if (selected) {
             stroke.color = selColor(u.owner)
@@ -708,10 +767,17 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             val r = if (isMounted(u.type) || u.type == UnitType.CATAPULT) 13f else 9f
             c.drawOval(x - r * s, y - r * 0.5f * s, x + r * s, y + r * 0.5f * s, stroke)
         }
-        drawFigure(c, u.type, color, x, y, s, dir, u.animTime, if (u.moving) 1f else 0f, u.attackAnim, p.age, u.carryType, u.carryAmount, u.order)
+        figure(c, u)
         if (selected || u.hp < u.maxHp) {
             hpBar(c, x, y - (if (isMounted(u.type)) 34f else 30f) * s, 16f * s, u.hp / u.maxHp, if (selected) 0 else color)
         }
+    }
+
+    private fun figure(c: Canvas, u: GameUnit) {
+        val p = world.players[u.owner]
+        // Screen-space facing: east in iso screen when cos-sin > 0.
+        val dir = if (cos(u.facing) - sin(u.facing) >= 0f) 1f else -1f
+        drawFigure(c, u.type, p.color, sx(u.x, u.y), sy(u.x, u.y), s, dir, u.animTime, if (u.moving) 1f else 0f, u.attackAnim, p.age, u.carryType, u.carryAmount, u.order)
     }
 
     private fun isMounted(t: UnitType) = t == UnitType.SCOUT || t == UnitType.HORSEMAN || t == UnitType.HORSE_ARCHER

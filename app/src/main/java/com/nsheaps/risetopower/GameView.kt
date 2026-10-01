@@ -173,6 +173,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
         val r = Renderer(world, humanId, camera, l)
         renderer = r
         picker.nodeHit = r::nodeHit
+        picker.buildingHit = r::buildingHit
         hud = Hud(this, world, humanId, r, ui, d)
     }
 
