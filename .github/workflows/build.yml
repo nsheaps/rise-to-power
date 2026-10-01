@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Releases withdrawn because the build did not work. They are ignored for versioning and
+  # deleted (release and tag) by the publish step if they still exist.
+  RETRACTED_TAGS: v1.0.0
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -35,7 +40,7 @@ jobs:
           # "BREAKING CHANGE" or "type!:" -> major, "feat" -> minor, else patch.
           # A "Release-As: X.Y.Z" line in a commit message sets the version explicitly;
           # that is the only way to reach 1.0.0.
-          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vxF -f <(tr ' ' '\n' <<< "$RETRACTED_TAGS") | head -n1 || true)
           if [ -z "$last" ]; then
             log=$(git log --format='%s%n%b')
             major=0; minor=0; patch=0
@@ -110,6 +115,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          for t in $RETRACTED_TAGS; do
+            if gh release view "$t" > /dev/null 2>&1; then
+              gh release delete "$t" --cleanup-tag --yes
+            elif git ls-remote --exit-code --tags origin "refs/tags/$t" > /dev/null; then
+              git push origin --delete "$t"
+            fi
+          done
           tag="v${{ steps.version.outputs.name }}"
           flags=()
           [ "${{ steps.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)

@@ -93,6 +93,8 @@ The game is in pre-release (`0.x`) until it is confirmed working on devices, and
 | `Release-As: X.Y.Z` line in the body | sets the version | sets the version |
 
 The first release is `0.1.0`. The only way to reach `1.0.0` is a commit with `Release-As: 1.0.0`.
+Tags listed in `RETRACTED_TAGS` in the workflow (currently the premature `v1.0.0`) are ignored for versioning,
+and their releases are deleted on the next publish.
 
 `versionCode` is the commit count on `main`, so it always increases. For a local build, pass
 `-PversionName=… -PversionCode=…`, or leave them out to get `0.0.0-dev`.
