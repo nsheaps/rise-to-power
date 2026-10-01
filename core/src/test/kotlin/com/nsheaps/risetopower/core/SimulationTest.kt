@@ -67,6 +67,26 @@ class SimulationTest {
     }
 
     @Test
+    fun villagersPickBerries() {
+        for (seed in 1L..6L) for (type in MapType.entries) {
+            val w = World(settings(2, seed = seed, type = type, humanFirst = true))
+            val p = w.players[0]
+            val tc = w.townCenters(0).first()
+            // Every bush of the home cluster, so bushes in the middle of the cluster are covered too.
+            val bushes = w.nodes.filter { it.kind == NodeKind.BERRIES && it.distanceTo(tc.x, tc.y) < 12f }
+            assertTrue("home berries on $type/$seed", bushes.isNotEmpty())
+            val vills = w.units.filter { it.owner == 0 && it.type == UnitType.VILLAGER }
+            for ((i, b) in bushes.withIndex()) {
+                val v = vills[i % vills.size]
+                w.commandSmart(0, listOf(v.id), b.x, b.y, b)
+            }
+            val before = p[ResourceType.FOOD]
+            run(w, 60f)
+            assertTrue("food went up on $type/$seed: ${p[ResourceType.FOOD]} vs $before", p[ResourceType.FOOD] > before + 40f)
+        }
+    }
+
+    @Test
     fun constructionAndTraining() {
         val w = World(settings(2, humanFirst = true))
         val p = w.players[0]

@@ -15,7 +15,7 @@ class IsoCamera(private val density: Float) {
     var mapW = 64
     var mapH = 64
 
-    val baseScale get() = density * 0.55f
+    val baseScale get() = density * 0.75f
     val scale get() = zoom * baseScale
 
     fun sx(wx: Float, wy: Float) = ((wx - wy) * HALF_W - cx) * scale + viewW / 2f
@@ -93,7 +93,7 @@ class IsoCamera(private val density: Float) {
     companion object {
         const val HALF_W = 32f
         const val HALF_H = 16f
-        const val MIN_ZOOM = 0.35f
-        const val MAX_ZOOM = 2.6f
+        const val MIN_ZOOM = 0.26f
+        const val MAX_ZOOM = 2.2f
     }
 }

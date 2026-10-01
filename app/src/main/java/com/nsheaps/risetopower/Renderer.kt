@@ -60,6 +60,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private val path = Path()
     private val matrix = Matrix()
     private val bounds = IntArray(4)
+    private val materials = Materials()
+    private val sprites = NatureSprites()
     private var time = 0f
 
     private class DrawItem {
@@ -140,15 +142,52 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     }
 
     /** Iso box on world rect [x0,x1]x[y0,y1] from height [base] to [base+h]. Draws the two front faces and the top. */
-    private fun box(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, h: Float, color: Int, top: Int? = null) {
+    private fun box(
+        c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, h: Float, color: Int, top: Int? = null,
+        mat: Materials.Kind = Materials.forWall(color),
+    ) {
         val b = up(base); val t = up(base + h)
         val lx = sx(x0, y1); val ly = sy(x0, y1)
         val bx = sx(x1, y1); val by = sy(x1, y1)
         val rx = sx(x1, y0); val ry = sy(x1, y0)
         val tx = sx(x0, y0); val ty = sy(x0, y0)
-        quad(c, shade(color, 0.78f), lx, ly - b, bx, by - b, bx, by - t, lx, ly - t)
+        val detailed = s > 0.5f && h > 0.25f
+        val tile = up(MAT_TILE) // one texture tile spans MAT_TILE world units
+        val edgeW = Materials.lineWidth(s)
+        // Left (south-west) face, texture u runs along world x.
+        quad(c, shade(color, 0.74f), lx, ly - b, bx, by - b, bx, by - t, lx, ly - t)
+        if (detailed) {
+            val ox = sx(0f, y1); val oy = sy(0f, y1) - b
+            materials.overlay(c, path, mat, ox, oy, tile, tile / 2f, 0f, tile)
+            if (base < 0.05f) materials.ambientOcclusion(c, path, lx, ly, bx - lx, by - ly, 0f, -up(min(h, 0.6f)))
+            materials.outline(c, path, 0x50000000, edgeW)
+        }
+        // Right (south-east) face, texture u runs along world y.
         quad(c, shade(color, 0.95f), bx, by - b, rx, ry - b, rx, ry - t, bx, by - t)
+        if (detailed) {
+            val ox = sx(x1, 0f); val oy = sy(x1, 0f) - b
+            materials.overlay(c, path, mat, ox, oy, -tile, tile / 2f, 0f, tile)
+            if (base < 0.05f) materials.ambientOcclusion(c, path, bx, by, rx - bx, ry - by, 0f, -up(min(h, 0.6f)))
+            materials.outline(c, path, 0x50000000, edgeW)
+        }
         quad(c, top ?: shade(color, 1.12f), tx, ty - t, rx, ry - t, bx, by - t, lx, ly - t)
+        if (detailed) {
+            // Lit top edges.
+            line(c, 0x40FFFFFF, lx, ly - t, bx, by - t, edgeW)
+            line(c, 0x40FFFFFF, bx, by - t, rx, ry - t, edgeW)
+        }
+    }
+
+    /** Roof tiles on the roof plane just filled into [path]: courses parallel to the eave (ex,ey)->(fx,fy), climbing to (ax,ay). */
+    private fun roofTiles(c: Canvas, ex: Float, ey: Float, fx: Float, fy: Float, ax: Float, ay: Float, eaveLen: Float) {
+        if (s <= 0.5f) return
+        val mx = (ex + fx) / 2f; val my = (ey + fy) / 2f
+        val rise = kotlin.math.hypot(ax - mx, ay - my)
+        val courses = max(2f, rise / (9f * s))
+        val n = max(1f, eaveLen / MAT_TILE)
+        // u along the eave (n tiles), v from apex down to the eave (courses).
+        materials.overlay(c, path, Materials.Kind.SHINGLES, ax, ay, (fx - ex) / n, (fy - ey) / n, (mx - ax) / courses * 5f, (my - ay) / courses * 5f)
+        materials.outline(c, path, 0x40000000, Materials.lineWidth(s))
     }
 
     private fun pyramidRoof(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, h: Float, color: Int) {
@@ -159,7 +198,10 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         val bx = sx(x1, y1); val by = sy(x1, y1) - b
         val rx = sx(x1, y0); val ry = sy(x1, y0) - b
         tri(c, shade(color, 0.8f), lx, ly, bx, by, ax, ay)
+        roofTiles(c, lx, ly, bx, by, ax, ay, x1 - x0)
         tri(c, shade(color, 1.0f), bx, by, rx, ry, ax, ay)
+        roofTiles(c, bx, by, rx, ry, ax, ay, y1 - y0)
+        line(c, shade(color, 1.3f), bx, by, ax, ay, max(1f, s * 1.1f))
     }
 
     /** Gable roof with its ridge running along the x axis. */
@@ -173,10 +215,17 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         val bx = sx(x1, y1); val by = sy(x1, y1) - b
         val lx = sx(x0, y1); val ly = sy(x0, y1) - b
         quad(c, shade(color, 1.1f), tx, ty, rx, ry, p2x, p2y, p1x, p1y)
+        roofTiles(c, tx, ty, rx, ry, (p1x + p2x) / 2f, (p1y + p2y) / 2f, x1 - x0)
         quad(c, shade(color, 0.85f), lx, ly, bx, by, p2x, p2y, p1x, p1y)
-        tri(c, shade(color, 0.7f), bx, by, rx, ry, p2x, p2y)
+        roofTiles(c, lx, ly, bx, by, (p1x + p2x) / 2f, (p1y + p2y) / 2f, x1 - x0)
+        // Gable end wall under the roof.
+        tri(c, shade(color, 0.62f), bx, by, rx, ry, p2x, p2y)
+        if (s > 0.5f) {
+            materials.outline(c, path, 0x50000000, Materials.lineWidth(s))
+            line(c, 0x55000000, bx, by + 1.5f * s, rx, ry + 1.5f * s, max(1f, 1.5f * s)) // eave shadow
+        }
         // Ridge highlight.
-        line(c, shade(color, 1.25f), p1x, p1y, p2x, p2y, max(1f, s * 1.2f))
+        line(c, shade(color, 1.3f), p1x, p1y, p2x, p2y, max(1f, s * 1.4f))
     }
 
     private fun crenellations(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, color: Int) {
@@ -243,7 +292,6 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         // Collect depth sorted items.
         for (it in items) { it.ref = null; pool += it }
         items.clear()
-        val zoomedOut = s < 0.55f
         for (n in world.nodes) {
             if (!n.alive || n.tx < x0 || n.ty < y0 || n.tx > x1 || n.ty > y1) continue
             if (!world.isExploredBy(humanId, n.tx, n.ty)) continue
@@ -269,7 +317,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
         for (d in items) {
             when (d.kind) {
-                0 -> drawNode(c, d.ref as ResourceNode, zoomedOut)
+                0 -> drawNode(c, d.ref as ResourceNode)
                 1 -> drawBuilding(c, d.ref as Building, ui.selection.contains((d.ref as Building).id))
                 2 -> drawUnit(c, d.ref as GameUnit, ui.selection.contains((d.ref as GameUnit).id))
                 3 -> drawMountain(c, d.tx, d.ty)
@@ -338,67 +386,35 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         }
     }
 
-    private fun drawNode(c: Canvas, n: ResourceNode, simple: Boolean) {
-        val x = sx(n.x, n.y); val y = sy(n.x, n.y)
+    private class NodeLook(var kind: NatureSprites.Kind = NatureSprites.Kind.CONIFER, var variant: Int = 0, var level: Int = 0, var mirror: Boolean = false)
+
+    private val look = NodeLook()
+
+    private fun lookOf(n: ResourceNode): NodeLook {
+        val left = n.amount / n.kind.amount
+        val v = n.variant % 12
+        look.level = 0; look.mirror = false; look.variant = v
         when (n.kind) {
-            NodeKind.TREE -> {
-                val v = n.variant
-                val green = when (v % 3) { 0 -> 0xFF2E5E26.toInt(); 1 -> 0xFF3A6B2A.toInt(); else -> 0xFF285223.toInt() }
-                if (simple) { circle(c, green, x, y - 14f * s, 9f * s); return }
-                ellipse(c, 0x44000000, x + 3f * s, y, 10f * s, 4f * s)
-                fill.color = 0xFF5A3A22.toInt()
-                c.drawRect(x - 1.8f * s, y - 12f * s, x + 1.8f * s, y, fill)
-                val sway = sin(time * 1.3f + v) * 0.8f * s
-                if (v % 2 == 0) {
-                    // Conifer.
-                    for (k in 0 until 3) {
-                        val ty = y - 10f * s - k * 7f * s
-                        val w = (11f - k * 2.5f) * s
-                        tri(c, shade(green, 0.85f + k * 0.08f), x - w + sway, ty, x + w + sway, ty, x + sway, ty - 13f * s)
-                    }
-                } else {
-                    circle(c, shade(green, 0.85f), x - 5f * s + sway, y - 17f * s, 7.5f * s)
-                    circle(c, green, x + 4.5f * s + sway, y - 18f * s, 7.5f * s)
-                    circle(c, shade(green, 1.15f), x + sway, y - 24f * s, 7.5f * s)
-                }
-            }
-            NodeKind.BERRIES -> {
-                ellipse(c, 0x44000000, x + 2f * s, y, 9f * s, 3.5f * s)
-                circle(c, 0xFF3F7A2E.toInt(), x - 4f * s, y - 5f * s, 6f * s)
-                circle(c, 0xFF4A8A34.toInt(), x + 4f * s, y - 6f * s, 6f * s)
-                circle(c, 0xFF56973C.toInt(), x, y - 10f * s, 6f * s)
-                val dots = (n.amount / 30f).toInt().coerceIn(1, 6)
-                for (k in 0 until dots) circle(c, 0xFFD02A4A.toInt(), x + ((k * 37) % 11 - 5) * s, y - (4 + (k * 53) % 9) * s, 1.6f * s)
-            }
-            NodeKind.GAME -> drawDeer(c, x, y, n.variant)
+            NodeKind.TREE -> { look.kind = if (v % 2 == 0) NatureSprites.Kind.CONIFER else NatureSprites.Kind.LEAFY; look.mirror = v % 3 == 0 }
+            NodeKind.BERRIES -> { look.kind = NatureSprites.Kind.BERRIES; look.variant = 0; look.level = (left * 3f).toInt().coerceIn(0, 3) }
+            NodeKind.GAME -> { look.kind = NatureSprites.Kind.DEER; look.variant = v % 4; look.mirror = v % 2 == 1 }
             NodeKind.GOLD, NodeKind.STONE -> {
-                val gold = n.kind == NodeKind.GOLD
-                val rock = if (gold) 0xFF8A7A62.toInt() else 0xFF9A9A98.toInt()
-                val frac = (n.amount / n.kind.amount).coerceIn(0.25f, 1f)
-                ellipse(c, 0x44000000, x + 3f * s, y + 2f * s, 30f * s * frac, 12f * s * frac)
-                val rocks = arrayOf(floatArrayOf(-12f, -4f, 9f), floatArrayOf(10f, -3f, 8f), floatArrayOf(0f, 4f, 9f), floatArrayOf(-2f, -12f, 10f), floatArrayOf(-16f, 5f, 6f), floatArrayOf(16f, 6f, 6f))
-                for ((k, r) in rocks.withIndex()) {
-                    val rx = x + r[0] * s * frac; val ry = y + r[1] * s * frac
-                    val rr = r[2] * s * frac
-                    tri(c, shade(rock, 0.75f), rx - rr, ry, rx + rr, ry, rx + rr * 0.2f, ry - rr * 1.3f)
-                    tri(c, shade(rock, 1.05f), rx - rr * 0.1f, ry, rx + rr, ry, rx + rr * 0.2f, ry - rr * 1.3f)
-                    if (gold && k % 2 == 0) circle(c, 0xFFFFD84A.toInt(), rx, ry - rr * 0.5f, rr * 0.28f)
-                    if (!gold) line(c, 0xFFD8D8D4.toInt(), rx - rr * 0.5f, ry - rr * 0.4f, rx + rr * 0.3f, ry - rr * 0.6f, max(1f, s))
-                }
+                look.kind = if (n.kind == NodeKind.GOLD) NatureSprites.Kind.GOLD else NatureSprites.Kind.STONE
+                look.variant = v % 3; look.level = (left * 4f - 0.01f).toInt().coerceIn(0, 3)
             }
         }
+        return look
     }
 
-    private fun drawDeer(c: Canvas, x: Float, y: Float, v: Int) {
-        val dir = if (v % 2 == 0) 1f else -1f
-        ellipse(c, 0x44000000, x, y, 8f * s, 3f * s)
-        val body = 0xFFA0703E.toInt()
-        for (k in 0 until 4) line(c, shade(body, 0.7f), x + (-5f + k * 3.3f) * s, y - 6f * s, x + (-5f + k * 3.3f) * s, y, max(1f, 1.2f * s))
-        ellipse(c, body, x, y - 8f * s, 7f * s, 3.5f * s)
-        line(c, body, x + dir * 5f * s, y - 9f * s, x + dir * 8f * s, y - 14f * s, max(1f, 2.4f * s))
-        ellipse(c, body, x + dir * 9f * s, y - 15f * s, 2.6f * s, 1.8f * s)
-        line(c, 0xFF5A3A22.toInt(), x + dir * 8f * s, y - 16f * s, x + dir * 7f * s, y - 20f * s, max(1f, 0.8f * s))
-        circle(c, 0xFFF0E8D8.toInt(), x - dir * 6.5f * s, y - 9f * s, 1.5f * s)
+    private fun drawNode(c: Canvas, n: ResourceNode) {
+        val l = lookOf(n)
+        sprites.draw(c, l.kind, l.variant, l.level, sx(n.x, n.y), sy(n.x, n.y), s, l.mirror)
+    }
+
+    /** Pixel-accurate hit test against the sprite drawn for [n]. */
+    fun nodeHit(n: ResourceNode, px: Float, py: Float): Boolean {
+        val l = lookOf(n)
+        return sprites.hit(l.kind, l.variant, l.level, sx(n.x, n.y), sy(n.x, n.y), s, l.mirror, px, py)
     }
 
     // ------------------------------------------------------------------ buildings
@@ -426,11 +442,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private fun drawBuilding(c: Canvas, b: Building, selected: Boolean) {
         val t = b.type
         val pc = world.players[b.owner].color
-        val inset = when (t) {
-            BuildingType.WALL -> 0.08f
-            BuildingType.TOWER -> 0.45f
-            else -> 0.2f
-        }
+        val inset = buildingInset(t)
         val x0 = b.minX + inset; val y0 = b.minY + inset; val x1 = b.maxX - inset; val y1 = b.maxY - inset
         if (!b.constructed) {
             drawFoundation(c, b, x0, y0, x1, y1)
@@ -464,14 +476,6 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         }
     }
 
-    private fun buildingHeight(t: BuildingType) = when (t) {
-        BuildingType.TOWER -> 2.6f
-        BuildingType.WONDER -> 3f
-        BuildingType.FORTRESS, BuildingType.TOWN_CENTER -> 2.2f
-        BuildingType.WALL -> 0.9f
-        BuildingType.FARM -> 0.2f
-        else -> 1.4f
-    }
 
     private fun drawFoundation(c: Canvas, b: Building, x0: Float, y0: Float, x1: Float, y1: Float) {
         groundRect(c, 0xFF8A7050.toInt(), b.minX + 0.05f, b.minY + 0.05f, b.maxX - 0.05f, b.maxY - 0.05f)
@@ -610,7 +614,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
                 flag(c, x1 - 0.1f, y1 - 0.1f, 0.6f, 0.6f, pc)
             }
             BuildingType.LIBRARY -> {
-                box(c, x0, y0, x1, y1, 0f, 0.8f, marble)
+                box(c, x0, y0, x1, y1, 0f, 0.8f, marble, top = 0xFFB4AC9C.toInt())
+                box(c, x0 + 0.08f, y0 + 0.08f, x1 - 0.08f, y1 - 0.08f, 0.8f, 0.08f, 0xFFC8C0B0.toInt(), mat = Materials.Kind.NONE)
                 // Columns on the front faces.
                 for (k in 1..4) {
                     val fx = x0 + (x1 - x0) * k / 5f
@@ -727,31 +732,60 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             else -> 0xFF8A6440.toInt()
         }
         val atkSwing = if (attack > 0f) sin(attack * 20f) else 0f
+        val ink = 0xC0201810.toInt()
+        val ow = max(0.8f, 0.9f * s)
         fun legs(top: Float) {
+            line(c, ink, x - 2f * s, y - top, x - 2f * s + swing, y + 0.5f * s, lw + ow * 2)
+            line(c, ink, x + 2f * s, y - top, x + 2f * s - swing, y + 0.5f * s, lw + ow * 2)
             line(c, dark, x - 2f * s, y - top, x - 2f * s + swing, y, lw)
             line(c, dark, x + 2f * s, y - top, x + 2f * s - swing, y, lw)
+            // Boots.
+            line(c, 0xFF4A3424.toInt(), x - 2f * s + swing, y - 1.5f * s, x - 2f * s + swing, y, lw * 1.3f)
+            line(c, 0xFF4A3424.toInt(), x + 2f * s - swing, y - 1.5f * s, x + 2f * s - swing, y, lw * 1.3f)
         }
         fun torso(col: Int, top: Float, bottom: Float, w: Float = 4.2f) {
-            fill.color = col
+            fill.color = ink
+            c.drawRoundRect(x - w * s - ow, y - top * s - ow, x + w * s + ow, y - bottom * s + ow, 2.4f * s, 2.4f * s, fill)
+            fill.color = shade(col, 0.78f)
             c.drawRoundRect(x - w * s, y - top * s, x + w * s, y - bottom * s, 2f * s, 2f * s, fill)
+            // Lit side facing the light (upper left).
+            fill.color = shade(col, 1.12f)
+            c.drawRoundRect(x - w * s, y - top * s, x + w * 0.15f * s, y - bottom * s - 0.5f * s, 2f * s, 2f * s, fill)
+            fill.color = 0x30FFFFFF
+            c.drawRect(x - w * s + 0.8f * s, y - top * s + 0.6f * s, x + w * s - 0.8f * s, y - top * s + 1.6f * s, fill)
         }
         fun head(hy: Float, helmet: Int?) {
-            circle(c, skin, x, y - hy * s, 3.2f * s)
+            circle(c, ink, x, y - hy * s, 3.2f * s + ow)
+            circle(c, shade(skin, 0.82f), x, y - hy * s, 3.2f * s)
+            circle(c, skin, x - 0.6f * s, y - (hy + 0.6f) * s, 2.5f * s)
+            circle(c, 0xFF2A1A12.toInt(), x + dir * 1.3f * s, y - (hy + 0.3f) * s, 0.45f * s) // eye
             if (helmet != null) {
                 fill.color = helmet
                 c.drawArc(x - 3.6f * s, y - (hy + 3.8f) * s, x + 3.6f * s, y - (hy - 2f) * s, 180f, 180f, true, fill)
+                fill.color = 0x50FFFFFF
+                c.drawArc(x - 2.8f * s, y - (hy + 3.3f) * s, x + 0.5f * s, y - (hy - 1f) * s, 200f, 70f, true, fill)
+            } else {
+                fill.color = 0xFF5A3A22.toInt() // hair
+                c.drawArc(x - 3.3f * s, y - (hy + 3.4f) * s, x + 3.3f * s, y - (hy - 1.2f) * s, 180f, 180f, true, fill)
             }
         }
         fun horse(col: Int) {
             for (k in 0 until 4) {
                 val lx = x + (-7f + k * 4.5f) * s
                 val ph = if (k % 2 == 0) swing else -swing
-                line(c, shade(col, 0.7f), lx, y - 8f * s, lx + ph, y, lw)
+                line(c, ink, lx, y - 8f * s, lx + ph, y + 0.5f * s, lw + ow * 2)
+                line(c, shade(col, if (k % 2 == 0) 0.6f else 0.75f), lx, y - 8f * s, lx + ph, y, lw)
             }
-            ellipse(c, col, x, y - 10f * s, 10f * s, 4.6f * s)
+            ellipse(c, ink, x, y - 10f * s, 10f * s + ow, 4.6f * s + ow)
+            ellipse(c, shade(col, 0.8f), x, y - 10f * s, 10f * s, 4.6f * s)
+            ellipse(c, shade(col, 1.15f), x - 1.5f * s, y - 11.2f * s, 7.5f * s, 2.8f * s)
+            line(c, ink, x + dir * 8f * s, y - 12f * s, x + dir * 12f * s, y - 18f * s, max(1f, 3.4f * s) + ow * 2)
             line(c, col, x + dir * 8f * s, y - 12f * s, x + dir * 12f * s, y - 18f * s, max(1f, 3.4f * s))
+            ellipse(c, ink, x + dir * 13.5f * s, y - 18.5f * s, 3.2f * s + ow, 2f * s + ow)
             ellipse(c, col, x + dir * 13.5f * s, y - 18.5f * s, 3.2f * s, 2f * s)
-            line(c, shade(col, 0.6f), x - dir * 10f * s, y - 11f * s, x - dir * 13f * s, y - 5f * s, max(1f, 1.5f * s))
+            // Mane and tail.
+            line(c, 0xFF2A1E14.toInt(), x + dir * 8.5f * s, y - 14f * s, x + dir * 11.5f * s, y - 19.5f * s, max(1f, 1.4f * s))
+            line(c, shade(col, 0.5f), x - dir * 10f * s, y - 11f * s, x - dir * 13f * s, y - 5f * s, max(1f, 1.8f * s))
         }
         when (type) {
             UnitType.VILLAGER -> {
@@ -1002,4 +1036,26 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
     @Suppress("unused")
     private fun blend(a: Int, b: Int, t: Float) = lerpColor(a, b, t)
+
+    companion object {
+        /** World units covered by one material texture tile. */
+        private const val MAT_TILE = 0.5f
+
+        /** Overall drawn height of a building, in tile half-widths (also used for hit testing). */
+        fun buildingHeight(t: BuildingType) = when (t) {
+            BuildingType.TOWER -> 2.6f
+            BuildingType.WONDER -> 3f
+            BuildingType.FORTRESS, BuildingType.TOWN_CENTER -> 2.2f
+            BuildingType.WALL -> 0.9f
+            BuildingType.FARM -> 0.2f
+            else -> 1.4f
+        }
+
+        /** How far the drawn body is inset from the building's footprint, in tiles. */
+        fun buildingInset(t: BuildingType) = when (t) {
+            BuildingType.WALL -> 0.08f
+            BuildingType.TOWER -> 0.45f
+            else -> 0.2f
+        }
+    }
 }

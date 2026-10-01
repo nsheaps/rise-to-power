@@ -38,6 +38,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
     val humanId = world.players.indexOfFirst { it.isHuman }.coerceAtLeast(0)
     private val d = resources.displayMetrics.density
     val camera = IsoCamera(d)
+    internal val picker by lazy { Picker(world, humanId, camera, d) }
     val ui = UiState()
     var layers: TerrainLayers? = null
     private var renderer: Renderer? = null
@@ -171,6 +172,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
         layers = l
         val r = Renderer(world, humanId, camera, l)
         renderer = r
+        picker.nodeHit = r::nodeHit
         hud = Hud(this, world, humanId, r, ui, d)
     }
 
@@ -448,48 +450,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
 
     // ------------------------------------------------------------------ picking & selection
 
-    private fun pickEntity(x: Float, y: Float): Entity? {
-        val s = camera.scale
-        var best: Entity? = null
-        var bestD = 20f * d * max(1f, camera.zoom)
-        for (u in world.units) {
-            if (!u.alive) continue
-            if (u.owner != humanId && !world.isAlly(humanId, u.owner) && !world.isVisibleTo(humanId, u.x, u.y)) continue
-            val ux = camera.sx(u.x, u.y)
-            val uy = camera.sy(u.x, u.y) - 12f * s
-            val dd = hypot(ux - x, uy - y)
-            if (dd < bestD) { bestD = dd; best = u }
-        }
-        if (best != null) return best
-        // Buildings: test the projected footprint extended upwards by the building height.
-        var bestKey = -1f
-        for (b in world.buildings) {
-            if (!b.alive) continue
-            if (b.owner != humanId && !world.isAlly(humanId, b.owner) && !world.isExploredBy(humanId, b.tx, b.ty)) continue
-            val left = camera.sx(b.minX, b.maxY); val right = camera.sx(b.maxX, b.minY)
-            val top = camera.sy(b.minX, b.minY) - (if (b.type == BuildingType.FARM) 0f else 40f * s * b.type.size.coerceAtMost(3))
-            val bottom = camera.sy(b.maxX, b.maxY)
-            if (x < left || x > right || y < top || y > bottom) continue
-            // Reject the empty triangles below the footprint diamond's side corners.
-            val midY = camera.sy(b.maxX, b.minY)
-            if (y > midY) {
-                val cx = camera.sx(b.maxX, b.maxY)
-                val halfW = (right - left) / 2f
-                val allowed = halfW * (1f - (y - midY) / (bottom - midY).coerceAtLeast(1f))
-                if (abs(x - cx) > allowed + 6f * d) continue
-            }
-            val key = b.x + b.y
-            if (key > bestKey) { bestKey = key; best = b }
-        }
-        if (best != null) return best
-        // Resource nodes by tile, also checking slightly below (tall trees).
-        for (off in floatArrayOf(0f, 10f * s, 20f * s)) {
-            val wx = camera.worldX(x, y + off); val wy = camera.worldY(x, y + off)
-            val ent = world.entityAtTile(wx.toInt(), wy.toInt())
-            if (ent is ResourceNode && world.isExploredBy(humanId, ent.tx, ent.ty)) return ent
-        }
-        return null
-    }
+    private fun pickEntity(x: Float, y: Float): Entity? = picker.pick(x, y)
 
     private fun ownSelectedUnits(): List<GameUnit> =
         ui.selection.mapNotNull { world.unit(it) }.filter { it.owner == humanId }
