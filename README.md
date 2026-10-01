@@ -7,6 +7,12 @@ It is written in Kotlin with no game engine and no art assets. The isometric gra
 
 ![Developing base](docs/screenshots/02_base_developing.png)
 
+## Download
+
+Every merge to `main` is tested, built and published as an APK on the
+[Releases page](https://github.com/nsheaps/rise-to-power/releases). To install it, download the APK on an Android 8.0+ device
+and allow installs from that source.
+
 ## Feature overview
 
 | Area | What's included |
@@ -70,3 +76,31 @@ You need JDK 17+ and the Android SDK (platform 35). Point to the SDK with `local
 ```
 
 The app requires Android 8.0 (API 26) or newer.
+
+## Releases and versioning
+
+The [Build workflow](.github/workflows/build.yml) runs the tests and builds the APKs on every pull request and push.
+On pushes to `main` it also tags the commit and publishes a GitHub release with the APK attached.
+
+Versions follow [semantic versioning](https://semver.org) and are computed from the commits since the last `vX.Y.Z` tag:
+
+| Commit message | Bump |
+|---|---|
+| `BREAKING CHANGE` in the body, or `type!:` prefix | major |
+| `feat:` / `feat(scope):` | minor |
+| anything else | patch |
+
+`versionCode` is the commit count on `main`, so it always increases. For a local build, pass
+`-PversionName=… -PversionCode=…`, or leave them out to get `0.0.0-dev`.
+
+### Signing
+
+By default, release APKs are signed with the runner's throwaway debug key. Each release then has a different signature, so you have to
+uninstall one release before installing the next. To sign every release with a stable key and get in-place upgrades, add these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `RELEASE_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
+| `RELEASE_KEYSTORE_PASSWORD` | keystore password |
+| `RELEASE_KEY_ALIAS` | key alias |
+| `RELEASE_KEY_PASSWORD` | key password |
