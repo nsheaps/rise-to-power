@@ -3,6 +3,7 @@ package com.nsheaps.risetopower
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -15,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -48,6 +50,8 @@ class ScreenshotTest {
             .putExtra(GameActivity.EXTRA_DIFFICULTY, 2)
         intent.extra()
         val activity = Robolectric.buildActivity(GameActivity::class.java, intent).setup().get()
+        activity.awaitLoaded()
+        shadowOf(Looper.getMainLooper()).idle()
         return activity.view!!
     }
 

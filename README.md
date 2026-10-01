@@ -82,13 +82,17 @@ The app requires Android 8.0 (API 26) or newer.
 The [Build workflow](.github/workflows/build.yml) runs the tests and builds the APKs on every pull request and push.
 On pushes to `main` it also tags the commit and publishes a GitHub release with the APK attached.
 
-Versions follow [semantic versioning](https://semver.org) and are computed from the commits since the last `vX.Y.Z` tag:
+Versions follow [semantic versioning](https://semver.org) and are computed from the commits since the last `vX.Y.Z` tag.
+The game is in pre-release (`0.x`) until it is confirmed working on devices, and 0.x builds are published as GitHub pre-releases.
 
-| Commit message | Bump |
-|---|---|
-| `BREAKING CHANGE` in the body, or `type!:` prefix | major |
-| `feat:` / `feat(scope):` | minor |
-| anything else | patch |
+| Commit message | While 0.x | From 1.0.0 |
+|---|---|---|
+| `BREAKING CHANGE` in the body, or `type!:` prefix | minor | major |
+| `feat:` / `feat(scope):` | minor | minor |
+| anything else | patch | patch |
+| `Release-As: X.Y.Z` line in the body | sets the version | sets the version |
+
+The first release is `0.1.0`. The only way to reach `1.0.0` is a commit with `Release-As: 1.0.0`.
 
 `versionCode` is the commit count on `main`, so it always increases. For a local build, pass
 `-PversionName=… -PversionCode=…`, or leave them out to get `0.0.0-dev`.

@@ -1,8 +1,12 @@
 package com.nsheaps.risetopower
 
 import android.app.Activity
+import android.graphics.Typeface
 import android.os.Bundle
+import android.util.Log
+import android.view.Gravity
 import android.view.WindowManager
+import android.widget.TextView
 import android.widget.Toast
 import com.nsheaps.risetopower.core.Civ
 import com.nsheaps.risetopower.core.Difficulty
@@ -13,6 +17,8 @@ import com.nsheaps.risetopower.core.PlayerSetup
 import com.nsheaps.risetopower.core.World
 import kotlin.random.Random
 
+private const val TAG = "RiseToPower"
+
 class GameActivity : Activity() {
     var view: GameView? = null
         private set
@@ -20,22 +26,56 @@ class GameActivity : Activity() {
     @Volatile var isResumedState = false
         private set
 
+    private var loader: Thread? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setContentView(loadingView())
         Immersive.apply(window)
-        val world = if (intent.getBooleanExtra(EXTRA_LOAD, false)) {
-            SaveStore.load(this) ?: run {
-                Toast.makeText(this, "Could not load the saved game", Toast.LENGTH_LONG).show()
-                finish()
-                return
+        // Map generation and sound synthesis take too long for the main thread on slower
+        // devices (input would time out and the system would kill the app), so build the
+        // game in the background and swap the view in when it is ready.
+        val load = intent.getBooleanExtra(EXTRA_LOAD, false)
+        loader = Thread({
+            val world = try {
+                if (load) SaveStore.load(this) else newWorld()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create the game", e)
+                null
             }
-        } else newWorld()
-        val s = Sfx(this)
+            val s = if (world != null) Sfx(this) else null
+            runOnUiThread { onLoaded(world, s) }
+        }, "game-loader").also { it.start() }
+    }
+
+    private fun onLoaded(world: World?, s: Sfx?) {
+        if (isFinishing || isDestroyed) { s?.release(); return }
+        if (world == null || s == null) {
+            Toast.makeText(this, "Could not start the game", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
         sfx = s
         val v = GameView(this, world, s)
         view = v
         setContentView(v)
+        Immersive.apply(window)
+        if (isResumedState) v.start()
+    }
+
+    /** Waits for the background loader; used by tests before inspecting [view]. */
+    fun awaitLoaded() {
+        loader?.join()
+    }
+
+    private fun loadingView() = TextView(this).apply {
+        text = "Preparing the land…"
+        gravity = Gravity.CENTER
+        textSize = 26f
+        typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        setTextColor(0xFFE2B04A.toInt())
+        setBackgroundColor(0xFF1B140E.toInt())
     }
 
     private fun newWorld(): World {
@@ -95,7 +135,8 @@ class GameActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        view?.requestPause()
+        val v = view
+        if (v == null) finish() else v.requestPause()
     }
 
     override fun onDestroy() {

@@ -829,7 +829,8 @@ class World(val settings: GameSettings, generate: Boolean = true) {
         var best: Entity? = null
         var bestScore = Float.MAX_VALUE
         forUnitsNear(u.x, u.y, radius) { o ->
-            if (isEnemy(u.owner, o.owner)) {
+            // Scouts only pick fights with other soldiers on their own; they raid citizens when ordered to.
+            if (isEnemy(u.owner, o.owner) && !(u.type == UnitType.SCOUT && o.type == UnitType.VILLAGER)) {
                 var d = dist(u.x, u.y, o.x, o.y)
                 // Prefer armed targets slightly over villagers.
                 if (o.type == UnitType.VILLAGER) d += 1.5f

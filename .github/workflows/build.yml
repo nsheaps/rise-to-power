@@ -29,17 +29,32 @@ jobs:
       - name: Compute version
         id: version
         run: |
-          # Semantic version from the latest vX.Y.Z tag, bumped by the commits since it:
-          # "BREAKING CHANGE" or "type!:" -> major, "feat" -> minor, anything else -> patch.
+          # Semantic version from the latest vX.Y.Z tag, bumped by the commits since it.
+          # While the major version is 0 the game is pre-release: breaking changes and
+          # "feat" bump the minor version, anything else the patch. From 1.0.0 on:
+          # "BREAKING CHANGE" or "type!:" -> major, "feat" -> minor, else patch.
+          # A "Release-As: X.Y.Z" line in a commit message sets the version explicitly;
+          # that is the only way to reach 1.0.0.
           last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
           if [ -z "$last" ]; then
-            next="1.0.0"
+            log=$(git log --format='%s%n%b')
+            major=0; minor=0; patch=0
           else
-            IFS=. read -r major minor patch <<< "${last#v}"
             log=$(git log --format='%s%n%b' "$last..HEAD")
-            if grep -qE '^BREAKING CHANGE|^[a-z]+(\(.+\))?!:' <<< "$log"; then
+            IFS=. read -r major minor patch <<< "${last#v}"
+          fi
+          forced=$(grep -oE '^Release-As: *[0-9]+\.[0-9]+\.[0-9]+' <<< "$log" | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+          if [ -n "$forced" ]; then
+            next="$forced"
+          elif [ -z "$last" ]; then
+            next="0.1.0"
+          else
+            breaking=false; feat=false
+            grep -qE '^BREAKING CHANGE|^[a-z]+(\(.+\))?!:' <<< "$log" && breaking=true
+            grep -qE '^feat(\(.+\))?!?:' <<< "$log" && feat=true
+            if $breaking && [ "$major" -gt 0 ]; then
               major=$((major + 1)); minor=0; patch=0
-            elif grep -qE '^feat(\(.+\))?:' <<< "$log"; then
+            elif $breaking || $feat; then
               minor=$((minor + 1)); patch=0
             else
               patch=$((patch + 1))
@@ -47,9 +62,12 @@ jobs:
             next="$major.$minor.$patch"
           fi
           code=$(git rev-list --count HEAD)
+          prerelease=false
+          [ "${next%%.*}" = "0" ] && prerelease=true
           echo "name=$next" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "Version $next (code $code), previous tag: ${last:-none}"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Version $next (code $code, prerelease $prerelease), previous tag: ${last:-none}"
 
       - name: Decode release keystore
         env:
@@ -93,7 +111,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v${{ steps.version.outputs.name }}"
+          flags=()
+          [ "${{ steps.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
           gh release create "$tag" dist/*.apk \
             --target "$GITHUB_SHA" \
             --title "Rise to Power $tag" \
-            --generate-notes
+            --generate-notes "${flags[@]}"
