@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Castle keep -->
+    <path android:fillColor="#FFB89A6A" android:pathData="M36,78 L36,48 L42,48 L42,42 L48,42 L48,48 L60,48 L60,42 L66,42 L66,48 L72,48 L72,78 Z" />
+    <path android:fillColor="#FF7A5C3A" android:pathData="M50,78 L50,66 A4,4 0 0,1 58,66 L58,78 Z" />
+    <!-- Flag pole and banner -->
+    <path android:fillColor="#FF3A2A1A" android:pathData="M53,42 L55,42 L55,24 L53,24 Z" />
+    <path android:fillColor="#FFD9412F" android:pathData="M55,24 L69,28 L55,33 Z" />
+    <!-- Crown of gold -->
+    <path android:fillColor="#FFE2B04A" android:pathData="M30,84 L78,84 L78,80 L30,80 Z" />
+</vector>
