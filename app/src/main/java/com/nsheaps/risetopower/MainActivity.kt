@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -102,9 +103,14 @@ class MainActivity : Activity() {
         col.addView(row("Starting resources", resources.view))
         col.addView(row("Wonder victory", wonder.view))
         col.addView(row("Map", reveal.view))
-        col.addView(space(12))
+        col.addView(space(8))
+        col.addView(subtitle("Larger maps allow more opponents (Small 3, Medium 5, Large 7).", 12f))
 
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         buttons.addView(menuButton("Back", 140) { showMain() })
         buttons.addView(menuButton("Start", 200) {
             val size = MapSize.entries[mapSize.index]
@@ -122,9 +128,17 @@ class MainActivity : Activity() {
                 .putExtra(GameActivity.EXTRA_REVEAL, reveal.index == 1)
             startActivity(intent)
         })
-        col.addView(buttons)
-        col.addView(subtitle("Larger maps allow more opponents (Small 3, Medium 5, Large 7).", 12f))
-        root.addView(scroll(col))
+        // Options scroll; Back and Start stay pinned at the bottom so they are always reachable.
+        val screen = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        screen.addView(scroll(col), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val bar = FrameLayout(this).apply {
+            setBackgroundColor(0xCC140E09.toInt())
+            val pad = (6 * dp).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        bar.addView(buttons, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        screen.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(screen, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     private fun showHelp() {
@@ -137,7 +151,8 @@ class MainActivity : Activity() {
             textSize = 14f
             setLineSpacing(4f * dp, 1f)
             text = HELP_TEXT
-            layoutParams = LinearLayout.LayoutParams((560 * dp).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+            maxWidth = (640 * dp).toInt()
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         col.addView(text)
         col.addView(menuButton("Back") { showMain() })
@@ -180,9 +195,12 @@ class MainActivity : Activity() {
         }
         r.addView(l)
         r.addView(control)
+        r.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         return r
     }
 
+    // The column spans the screen width so every text view gets an exact width to wrap or
+    // shrink against; wrap-content widths let text be measured narrower than it draws.
     private fun column() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
@@ -193,18 +211,21 @@ class MainActivity : Activity() {
     private fun scroll(content: View) = ScrollView(this).apply {
         isFillViewport = true
         val wrap = FrameLayout(this@MainActivity)
-        wrap.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        wrap.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         addView(wrap, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
+    /** Single-line heading that shrinks to fit the screen width. */
     private fun title(text: String, size: Float) = TextView(this).apply {
         this.text = text
-        textSize = size
         typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         setTextColor(0xFFE2B04A.toInt())
         setShadowLayer(8f, 0f, 3f, Color.BLACK)
         gravity = Gravity.CENTER
         letterSpacing = 0.08f
+        maxLines = 1
+        setAutoSizeTextTypeUniformWithConfiguration(16, size.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (size * 1.5f * dp * fontScale()).toInt())
     }
 
     private fun subtitle(text: String, size: Float = 15f) = TextView(this).apply {
@@ -213,7 +234,10 @@ class MainActivity : Activity() {
         setTextColor(0xFFBFAF90.toInt())
         gravity = Gravity.CENTER
         setPadding(0, (4 * dp).toInt(), 0, (4 * dp).toInt())
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
     }
+
+    private fun fontScale() = resources.configuration.fontScale.coerceAtLeast(1f)
 
     private fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, (h * dp).toInt()) }
 
@@ -233,7 +257,9 @@ class MainActivity : Activity() {
             setStroke((2 * dp).toInt(), 0xFFE2B04A.toInt())
         }
         stateListAnimator = null
-        val lp = LinearLayout.LayoutParams((width * dp).toInt(), (48 * dp).toInt())
+        minHeight = (48 * dp).toInt()
+        minimumHeight = (48 * dp).toInt()
+        val lp = LinearLayout.LayoutParams((width * dp).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         lp.setMargins((6 * dp).toInt(), (5 * dp).toInt(), (6 * dp).toInt(), (5 * dp).toInt())
         layoutParams = lp
         setOnClickListener { onClick() }

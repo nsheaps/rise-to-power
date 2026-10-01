@@ -3,6 +3,7 @@ package com.nsheaps.risetopower
 import android.annotation.SuppressLint
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -24,6 +25,8 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+private const val TAG = "RiseToPower"
+
 class Ping(val x: Float, val y: Float, var t: Float = 0f)
 
 /**
@@ -43,6 +46,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
     private var thread: Thread? = null
     @Volatile private var running = false
     @Volatile private var surfaceReady = false
+    @Volatile private var softwareFallback = false
     private val touches = ConcurrentLinkedQueue<MotionEvent>()
 
     // Game state of the view.
@@ -79,6 +83,7 @@ class GameView(private val activity: GameActivity, val world: World, private val
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         surfaceReady = true
+        softwareFallback = false
         if (activity.isResumedState) start()
     }
 
@@ -143,13 +148,13 @@ class GameView(private val activity: GameActivity, val world: World, private val
             for (p in pings) p.t += dt
             pings.removeAll { it.t > 3f }
 
-            val canvas: Canvas? = try { holder.lockHardwareCanvas() } catch (e: Exception) { null }
+            val canvas = lockFrame()
             if (canvas != null) {
                 try {
                     renderer!!.draw(canvas, ui, if (simulating) dt else 0f)
                     hud!!.draw(canvas, dt)
                 } finally {
-                    try { holder.unlockCanvasAndPost(canvas) } catch (_: Exception) {}
+                    postFrame(canvas)
                 }
             }
             val frame = (System.nanoTime() - now) / 1_000_000
@@ -193,14 +198,35 @@ class GameView(private val activity: GameActivity, val world: World, private val
     val hudForTest get() = hud
 
     private fun drawLoading() {
-        val c = try { holder.lockCanvas() } catch (e: Exception) { null } ?: return
+        val c = lockFrame() ?: return
         c.drawColor(0xFF1B140E.toInt())
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFE2B04A.toInt(); textSize = 26f * d; textAlign = Paint.Align.CENTER
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
         }
         c.drawText("Preparing the land…", c.width / 2f, c.height / 2f, p)
-        holder.unlockCanvasAndPost(c)
+        postFrame(c)
+    }
+
+    /**
+     * Locks the surface for one frame. A surface can only be connected to one producer API, so
+     * every frame (including the loading screen) must use the same lock method: hardware when
+     * available, otherwise software for the rest of this surface's lifetime.
+     */
+    private fun lockFrame(): Canvas? {
+        if (!softwareFallback) {
+            try {
+                return holder.lockHardwareCanvas()
+            } catch (e: Exception) {
+                Log.w(TAG, "Hardware canvas unavailable, falling back to software rendering", e)
+                softwareFallback = true
+            }
+        }
+        return try { holder.lockCanvas() } catch (e: Exception) { Log.e(TAG, "lockCanvas failed", e); null }
+    }
+
+    private fun postFrame(c: Canvas) {
+        try { holder.unlockCanvasAndPost(c) } catch (e: Exception) { Log.e(TAG, "unlockCanvasAndPost failed", e) }
     }
 
     private fun updateLayers(dt: Float) {
