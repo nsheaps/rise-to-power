@@ -146,13 +146,15 @@ class Hud(private val view: GameView, private val world: World, private val huma
     private fun label(c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int = 0xFFF5E9CF.toInt(), align: Paint.Align = Paint.Align.LEFT, bold: Boolean = true, maxWidth: Float = 0f) {
         val p = if (bold) text else plain
         p.textSize = size * d
+        var str = s
         if (maxWidth > 0f) {
-            val tw = p.measureText(s)
+            if (p.measureText(str) > maxWidth * 1.3f) str = str.replace("000", "k")
+            val tw = p.measureText(str)
             if (tw > maxWidth) p.textSize = p.textSize * maxWidth / tw
         }
         p.color = color
         p.textAlign = align
-        c.drawText(s, x, y, p)
+        c.drawText(str, x, y, p)
     }
 
     private fun resIcon(c: Canvas, r: ResourceType, x: Float, y: Float, rad: Float) {
