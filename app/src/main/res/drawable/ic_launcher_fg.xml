@@ -1,13 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher foreground: a gold-framed shield bearing a citadel tower. Kept inside the 66dp safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- Castle keep -->
-    <path android:fillColor="#FFB89A6A" android:pathData="M36,78 L36,48 L42,48 L42,42 L48,42 L48,48 L60,48 L60,42 L66,42 L66,48 L72,48 L72,78 Z" />
-    <path android:fillColor="#FF7A5C3A" android:pathData="M50,78 L50,66 A4,4 0 0,1 58,66 L58,78 Z" />
-    <!-- Flag pole and banner -->
-    <path android:fillColor="#FF3A2A1A" android:pathData="M53,42 L55,42 L55,24 L53,24 Z" />
-    <path android:fillColor="#FFD9412F" android:pathData="M55,24 L69,28 L55,33 Z" />
-    <!-- Crown of gold -->
-    <path android:fillColor="#FFE2B04A" android:pathData="M30,84 L78,84 L78,80 L30,80 Z" />
+    <!-- shadow -->
+    <path android:fillColor="#60000000" android:pathData="M54,30 C62,34 70,35 76,34 L76,58 C76,70 66,80 54,86 C42,80 32,70 32,58 L32,34 C38,35 46,34 54,30 Z" />
+    <!-- gold rim -->
+    <path android:pathData="M54,27 C62,31 70,32 76,31 L76,56 C76,68 66,78 54,84 C42,78 32,68 32,56 L32,31 C38,32 46,31 54,27 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="54" android:startY="27" android:endX="54" android:endY="84">
+                <item android:offset="0" android:color="#FFFFF0B8" />
+                <item android:offset="0.4" android:color="#FFE9C25C" />
+                <item android:offset="0.7" android:color="#FFC08A2A" />
+                <item android:offset="1" android:color="#FF8A5E18" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- shield field: sky -->
+    <path android:pathData="M54,30 C61,33.5 68,34.5 73.5,33.5 L73.5,56 C73.5,67 64.5,76 54,81.5 C43.5,76 34.5,67 34.5,56 L34.5,33.5 C40,34.5 47,33.5 54,30 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="54" android:startY="30" android:endX="54" android:endY="82">
+                <item android:offset="0" android:color="#FF2B2A52" />
+                <item android:offset="0.55" android:color="#FFB9683E" />
+                <item android:offset="0.72" android:color="#FFF3C27A" />
+                <item android:offset="0.73" android:color="#FF2C4A2C" />
+                <item android:offset="1" android:color="#FF1C301C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- sun behind the tower -->
+    <path android:fillColor="#FFFFF0C0" android:pathData="M54,66 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0" />
+    <!-- walls -->
+    <path android:fillColor="#FF6A5440" android:pathData="M36,60 L50,60 L50,68 L36,68 Z" />
+    <path android:fillColor="#FF4A3A2C" android:pathData="M58,60 L72,60 L72,68 L58,68 Z" />
+    <path android:fillColor="#FF8A6A48" android:pathData="M36,58 L50,58 L50,60 L36,60 Z M58,58 L72,58 L72,60 L58,60 Z" />
+    <!-- tower -->
+    <path android:pathData="M47,44 L61,44 L61,70 L47,70 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="47" android:startY="44" android:endX="61" android:endY="44">
+                <item android:offset="0" android:color="#FFE8D2B0" />
+                <item android:offset="0.5" android:color="#FFB8956C" />
+                <item android:offset="1" android:color="#FF5A4030" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:fillColor="#FF8A6A48" android:pathData="M45.5,42 L62.5,42 L62.5,45 L45.5,45 Z" />
+    <path android:fillColor="#FFC9A680" android:pathData="M45.5,39.5 L48.5,39.5 L48.5,42 L45.5,42 Z M52.5,39.5 L55.5,39.5 L55.5,42 L52.5,42 Z M59.5,39.5 L62.5,39.5 L62.5,42 L59.5,42 Z" />
+    <path android:fillColor="#FF2A1A10" android:pathData="M50,48 L52.5,48 L52.5,52 L50,52 Z M55.5,48 L58,48 L58,52 L55.5,52 Z M50,56 L52.5,56 L52.5,60 L50,60 Z M55.5,56 L58,56 L58,60 L55.5,60 Z" />
+    <path android:fillColor="#FF1A1008" android:pathData="M51,70 L51,65 A3,3 0 0,1 57,65 L57,70 Z" />
+    <!-- banner -->
+    <path android:fillColor="#FF3A2A1A" android:pathData="M53.6,30 L54.6,30 L54.6,40 L53.6,40 Z" />
+    <path android:fillColor="#FFD9412F" android:pathData="M54.6,30.5 L62,33 L54.6,35.8 Z" />
 </vector>

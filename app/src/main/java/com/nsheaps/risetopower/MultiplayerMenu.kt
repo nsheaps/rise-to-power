@@ -43,8 +43,9 @@ class MultiplayerMenu(private val a: MainActivity) {
         leave()
         a.root.removeAllViews()
         a.root.tag = TAG_MENU
-        val col = a.column()
+        val col = a.column(framed = true)
         col.addView(a.title("Multiplayer", 32f))
+        col.addView(a.flourish())
         col.addView(a.subtitle("Play with friends nearby over Bluetooth. One phone hosts the game and the others join it."))
         col.addView(a.space(12))
         col.addView(a.menuButton("Host Game") { withBluetooth { showHost() } })
@@ -52,7 +53,7 @@ class MultiplayerMenu(private val a: MainActivity) {
         col.addView(a.menuButton("Back") { a.showMainMenu() })
         col.addView(a.space(8))
         col.addView(a.subtitle("Tip: pairing the phones in Bluetooth settings first makes the host easy to find.", 12f))
-        a.root.addView(a.scroll(col))
+        a.root.addView(a.scroll(col, framed = true))
     }
 
     // ------------------------------------------------------------------ host
@@ -62,8 +63,9 @@ class MultiplayerMenu(private val a: MainActivity) {
         a.root.removeAllViews()
         a.root.tag = TAG_HOST
         val me = Bluetooth.localName(a)
-        val col = a.column()
+        val col = a.column(framed = true)
         col.addView(a.title("Host a Game", 32f))
+        col.addView(a.flourish())
         val status = a.subtitle("Waiting for players. On their phones, choose Multiplayer › Join Game and pick “$me”.", 14f)
         col.addView(status)
         val players = a.subtitle("", 15f).apply { setTextColor(0xFFF5E9CF.toInt()) }
@@ -141,8 +143,9 @@ class MultiplayerMenu(private val a: MainActivity) {
         leave()
         a.root.removeAllViews()
         a.root.tag = TAG_JOIN
-        val col = a.column()
+        val col = a.column(framed = true)
         col.addView(a.title("Join a Game", 32f))
+        col.addView(a.flourish())
         val status = a.subtitle("Pick the phone that is hosting. The host must have Host Game open.", 14f)
         col.addView(status)
         val civ = a.option("civ", Civ.entries.map { it.displayName }, 0)
