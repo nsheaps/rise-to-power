@@ -238,7 +238,7 @@ class World(val settings: GameSettings, generate: Boolean = true) {
         }
     }
 
-    private fun removeEntity(e: Entity) {
+    internal fun removeEntity(e: Entity) {
         entities.remove(e.id)
         when (e) {
             is Building -> {
@@ -727,9 +727,11 @@ class World(val settings: GameSettings, generate: Boolean = true) {
     }
 
     private fun pathToEntity(u: GameUnit, e: Entity) {
+        // Re-pathing to the same target keeps the stuck time, so a unit wedged in a crowd
+        // eventually gives up and picks another target instead of retrying forever.
+        if (u.pathGoalId != e.id) u.stuckTimer = 0f
         u.pathGoalId = e.id
         u.pathGoalX = e.x; u.pathGoalY = e.y
-        u.stuckTimer = 0f
         u.pathIndex = 0
         when (e) {
             is GameUnit -> {
@@ -786,6 +788,7 @@ class World(val settings: GameSettings, generate: Boolean = true) {
         if (e.distanceTo(u.x, u.y) <= reach) {
             u.clearPath()
             u.moving = false
+            u.stuckTimer = 0f
             return true
         }
         u.repathTimer -= dt
@@ -1117,13 +1120,24 @@ class World(val settings: GameSettings, generate: Boolean = true) {
         return best
     }
 
-    fun findNode(resource: ResourceType, x: Float, y: Float, radius: Float, exclude: Int = -1): ResourceNode? {
+    /**
+     * The closest node of [resource] within [radius], counting each unit already working a
+     * node as [CROWD_PENALTY] tiles of extra distance so gatherers spread out over a forest
+     * or mine instead of queuing at one tree.
+     */
+    fun findNode(resource: ResourceType, x: Float, y: Float, radius: Float, exclude: Int = -1, self: Int = -1): ResourceNode? {
+        val crowd = HashMap<Int, Int>()
+        for (o in units) {
+            if (o.alive && o.id != self && o.order == OrderType.GATHER && o.targetId >= 0) crowd.merge(o.targetId, 1, Int::plus)
+        }
         var best: ResourceNode? = null
-        var bestD = radius
+        var bestScore = Float.MAX_VALUE
         for (n in nodes) {
             if (!n.alive || n.id == exclude || n.kind.resource != resource) continue
             val d = dist(n.x, n.y, x, y)
-            if (d < bestD) { bestD = d; best = n }
+            if (d >= radius) continue
+            val score = d + (crowd[n.id] ?: 0) * CROWD_PENALTY / n.kind.size
+            if (score < bestScore) { bestScore = score; best = n }
         }
         return best
     }
@@ -1151,7 +1165,7 @@ class World(val settings: GameSettings, generate: Boolean = true) {
                 val farm = findFreeFarm(u.owner, u.gatherX, u.gatherY, 8f, u.id)
                 if (farm != null) { startFarm(u, farm); return }
             }
-            val next = if (res != null) findNode(res, u.gatherX, u.gatherY, 10f) else null
+            val next = if (res != null) findNode(res, u.gatherX, u.gatherY, 10f, self = u.id) else null
             if (next != null) { startGather(u, next); return }
             if (u.carryAmount > 0f) { u.order = OrderType.RETURN; u.clearPath() } else setIdle(u)
             return
@@ -1190,7 +1204,7 @@ class World(val settings: GameSettings, generate: Boolean = true) {
         if (!inReach) {
             if (u.stuckTimer > 5f) {
                 u.stuckTimer = 0f
-                val alt = findNode(res, u.x, u.y, 12f, target.id)
+                val alt = findNode(res, u.x, u.y, 12f, target.id, self = u.id)
                 if (alt != null) startGather(u, alt) else setIdle(u)
             }
             return
@@ -1633,5 +1647,7 @@ class World(val settings: GameSettings, generate: Boolean = true) {
     companion object {
         const val WONDER_TIME = 300f
         const val TICK = 0.05f
+        /** Extra distance, in tiles, findNode counts per unit already working a node. */
+        const val CROWD_PENALTY = 1.5f
     }
 }
