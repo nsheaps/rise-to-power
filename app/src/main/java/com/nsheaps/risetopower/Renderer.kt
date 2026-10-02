@@ -8,7 +8,9 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.RadialGradient
 import android.graphics.RectF
+import android.graphics.Shader
 import com.nsheaps.risetopower.TerrainLayers.Companion.lerpColor
 import com.nsheaps.risetopower.TerrainLayers.Companion.shade
 import com.nsheaps.risetopower.core.Age
@@ -60,6 +62,11 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val bmpPaintSharp = Paint()
+    private val shimmerPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    /** Unit-circle radial gradient; positioned per draw through its local matrix (no allocation). */
+    private val shadowShader = RadialGradient(0f, 0f, 1f, intArrayOf(0x5A000000, 0x40000000, 0x00000000), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = shadowShader }
+    private val shadowMatrix = Matrix()
     private val path = Path()
     private val matrix = Matrix()
     private val bounds = IntArray(4)
@@ -132,6 +139,14 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private fun ellipse(c: Canvas, color: Int, x: Float, y: Float, rx: Float, ry: Float) {
         fill.color = color
         c.drawOval(x - rx, y - ry, x + rx, y + ry, fill)
+    }
+
+    /** Soft-edged ground shadow (radial falloff) centred at (x, y). */
+    private fun softShadow(c: Canvas, x: Float, y: Float, rx: Float, ry: Float) {
+        shadowMatrix.setScale(rx, ry)
+        shadowMatrix.postTranslate(x, y)
+        shadowShader.setLocalMatrix(shadowMatrix)
+        c.drawOval(x - rx, y - ry, x + rx, y + ry, shadowPaint)
     }
 
     /** Diamond for a world rectangle at ground level. */
@@ -236,6 +251,46 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         line(c, shade(color, 1.3f), p1x, p1y, p2x, p2y, max(1f, s * 1.4f))
     }
 
+    /**
+     * Small windows on the two front faces of a box spanning [x0,x1]x[y0,y1] between heights
+     * [base] and [base]+[h]: [nl] along the south-west face, [nr] along the south-east face.
+     * Drawn inside the faces, so building silhouettes (and hit tests) are unchanged.
+     */
+    private fun windows(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, h: Float, nl: Int, nr: Int, slit: Boolean = false) {
+        if (s <= 0.5f) return
+        val ww = if (slit) 0.07f else 0.16f
+        val lo = up(base + h * (if (slit) 0.3f else 0.38f)); val hi = up(base + h * (if (slit) 0.75f else 0.66f))
+        val glass = 0xFF2C3A4E.toInt(); val frame = 0x66FFF4D8; val sill = 0x55000000
+        for (k in 0 until nl) {
+            val fx = x0 + (x1 - x0) * (k + 0.5f) / nl
+            val ax = sx(fx - ww, y1); val ay = sy(fx - ww, y1); val bx = sx(fx + ww, y1); val by = sy(fx + ww, y1)
+            quad(c, glass, ax, ay - lo, bx, by - lo, bx, by - hi, ax, ay - hi)
+            tri(c, 0x50C8E0FF, ax, ay - hi, bx, by - hi, ax, ay - lo - (hi - lo) * 0.3f)
+            line(c, frame, ax, ay - hi, bx, by - hi, max(1f, s))
+            line(c, sill, ax, ay - lo + s, bx, by - lo + s, max(1f, s))
+        }
+        for (k in 0 until nr) {
+            val fy = y0 + (y1 - y0) * (k + 0.5f) / nr
+            val ax = sx(x1, fy + ww); val ay = sy(x1, fy + ww); val bx = sx(x1, fy - ww); val by = sy(x1, fy - ww)
+            quad(c, glass, ax, ay - lo, bx, by - lo, bx, by - hi, ax, ay - hi)
+            tri(c, 0x38C8E0FF, ax, ay - hi, bx, by - hi, ax, ay - lo - (hi - lo) * 0.3f)
+            line(c, frame, ax, ay - hi, bx, by - hi, max(1f, s))
+            line(c, sill, ax, ay - lo + s, bx, by - lo + s, max(1f, s))
+        }
+    }
+
+    /** A door with a shaded recess and a lit lintel, centred at world x [fx] on the south-west face y=[fy]. */
+    private fun door(c: Canvas, fx: Float, fy: Float, halfW: Float, h: Float, base: Float = 0f) {
+        val b = up(base); val t = up(base + h)
+        val ax = sx(fx - halfW, fy); val ay = sy(fx - halfW, fy); val bx = sx(fx + halfW, fy); val by = sy(fx + halfW, fy)
+        quad(c, 0xFF3A2416.toInt(), ax, ay - b, bx, by - b, bx, by - t, ax, ay - t)
+        quad(c, 0xFF5A3A22.toInt(), ax + (bx - ax) * 0.2f, ay + (by - ay) * 0.2f - b, bx, by - b, bx, by - t + (t - b) * 0.08f, ax + (bx - ax) * 0.2f, ay + (by - ay) * 0.2f - t + (t - b) * 0.08f)
+        if (s > 0.5f) {
+            line(c, 0x70FFF0D0, ax - s, ay - t, bx + s, by - t, max(1f, 1.4f * s))
+            circle(c, 0xFFE0C060.toInt(), bx - (bx - ax) * 0.25f, by - (by - ay) * 0.25f - (b + t) / 2f, max(0.8f, 0.9f * s))
+        }
+    }
+
     private fun crenellations(c: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, base: Float, color: Int) {
         val n = max(2, ((x1 - x0) * 3).toInt())
         val sz = (x1 - x0) / (n * 2f)
@@ -283,7 +338,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         // Terrain & territory layers.
         cam.tileMatrix(matrix, layers.ppt.toFloat())
         c.drawBitmap(layers.terrain, matrix, bmpPaint)
-        cam.tileMatrix(matrix, TerrainLayers.TERR_PPT.toFloat())
+        drawWaterShimmer(c)
+        cam.tileMatrix(matrix, layers.terrPpt.toFloat())
         c.drawBitmap(layers.territory, matrix, bmpPaint)
 
         cam.visibleBounds(bounds, 3)
@@ -341,7 +397,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
         // Fog of war on top.
         if (!world.revealed) {
-            cam.tileMatrix(matrix, 1f)
+            cam.tileMatrix(matrix, TerrainLayers.FOG_PPT.toFloat())
             c.drawBitmap(layers.fog, matrix, bmpPaint)
         }
 
@@ -374,24 +430,76 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
     // ------------------------------------------------------------------ terrain features
 
+    /**
+     * Two drifting, pulsing copies of the pre-rendered water highlight layer. The layer is
+     * transparent over land, so the sub-tile drift never spills onto the beach.
+     */
+    private fun drawWaterShimmer(c: Canvas) {
+        if (!layers.hasWater) return
+        val sp = layers.shimmerPpt.toFloat()
+        val t = time
+        for (k in 0 until 2) {
+            val ph = t * 0.9f + k * 2.1f
+            val dx = sin(ph) * 0.09f + k * 0.06f
+            val dy = cos(ph * 0.7f) * 0.07f
+            cam.tileMatrix(matrix, sp)
+            matrix.preTranslate(dx * sp, dy * sp)
+            shimmerPaint.alpha = (110 + 90 * sin(t * 1.3f + k * 3.1f)).toInt().coerceIn(0, 255)
+            c.drawBitmap(layers.shimmer, matrix, shimmerPaint)
+        }
+    }
+
+    /**
+     * A rocky peak per mountain tile. Peaks are offset and sized by a hash so neighbouring tiles
+     * overlap into a ragged massif rather than a grid of pyramids; sunlit from the north-west.
+     */
     private fun drawMountain(c: Canvas, x: Int, y: Int) {
         val e = world.map.elevation[world.map.idx(x, y)]
-        val hsh = ((x * 73856093) xor (y * 19349663)) and 255
-        val h = 0.5f + (hsh / 255f) * 0.6f + (e - 0.7f).coerceAtLeast(0f) * 2f
-        val cxw = x + 0.5f + ((hsh and 7) - 3.5f) * 0.04f
-        val cyw = y + 0.5f
-        val base = 0xFF7A7064.toInt()
+        val hsh = ((x * 73856093) xor (y * 19349663)) ushr 1
+        val r1 = (hsh and 255) / 255f; val r2 = ((hsh ushr 8) and 255) / 255f; val r3 = ((hsh ushr 16) and 255) / 255f
+        val h = 0.5f + r1 * 0.8f + (e - 0.7f).coerceAtLeast(0f) * 2.2f
+        val cxw = x + 0.5f + (r2 - 0.5f) * 0.36f
+        val cyw = y + 0.5f + (r3 - 0.5f) * 0.36f
+        val base = lerpColor(0xFF8E7E6A.toInt(), 0xFF7E746E.toInt(), r3)
         val ax = sx(cxw, cyw); val ay = sy(cxw, cyw) - up(h)
-        val lx = sx(x - 0.05f, y + 1.05f); val ly = sy(x - 0.05f, y + 1.05f)
-        val bx = sx(x + 1.05f, y + 1.05f); val by = sy(x + 1.05f, y + 1.05f)
-        val rx = sx(x + 1.05f, y - 0.05f); val ry = sy(x + 1.05f, y - 0.05f)
-        tri(c, shade(base, 0.72f), lx, ly, bx, by, ax, ay)
-        tri(c, shade(base, 0.95f), bx, by, rx, ry, ax, ay)
-        if (h > 0.95f) {
-            // Snow cap.
-            val t = 0.28f
-            tri(c, 0xFFE8ECF0.toInt(), ax + (lx - ax) * t, ay + (ly - ay) * t, ax + (bx - ax) * t, ay + (by - ay) * t, ax, ay)
-            tri(c, 0xFFFFFFFF.toInt(), ax + (bx - ax) * t, ay + (by - ay) * t, ax + (rx - ax) * t, ay + (ry - ay) * t, ax, ay)
+        // Footprint larger than the tile so peaks merge into a range.
+        val m = 0.3f
+        val lx = sx(x - m, y + 1 + m); val ly = sy(x - m, y + 1 + m)
+        val bx = sx(x + 1 + m, y + 1 + m); val by = sy(x + 1 + m, y + 1 + m)
+        val rx = sx(x + 1 + m, y - m); val ry = sy(x + 1 + m, y - m)
+        softShadow(c, sx(x + 0.6f, y + 0.6f), sy(x + 0.6f, y + 0.6f), 48f * s, 22f * s)
+        // A shoulder on each face breaks the straight silhouette.
+        val shL = 0.35f + r2 * 0.25f; val shR = 0.3f + r1 * 0.25f
+        val slx = ax + (lx - ax) * shL + 5f * s; val sly = ay + (ly - ay) * shL - 6f * s * r1
+        val srx = ax + (rx - ax) * shR - 5f * s; val sry = ay + (ry - ay) * shR - 6f * s * r2
+        val fold = 0.5f + (r3 - 0.5f) * 0.3f
+        val fx = ax + (bx - ax) * fold; val fy = ay + (by - ay) * fold + 5f * s
+        // Left (lit) face with a darker fold, right (shaded) face with a deeper fold.
+        path.reset(); path.moveTo(lx, ly); path.lineTo(fx, fy); path.lineTo(ax, ay); path.lineTo(slx, sly); path.close()
+        fill.color = shade(base, 1.08f); c.drawPath(path, fill)
+        path.reset(); path.moveTo(fx, fy); path.lineTo(bx, by); path.lineTo(ax, ay); path.close()
+        fill.color = shade(base, 0.9f); c.drawPath(path, fill)
+        path.reset(); path.moveTo(bx, by); path.lineTo(fx + (rx - fx) * 0.5f, fy + (ry - fy) * 0.5f + 4f * s); path.lineTo(ax, ay); path.close()
+        fill.color = shade(base, 0.74f); c.drawPath(path, fill)
+        path.reset(); path.moveTo(fx + (rx - fx) * 0.5f, fy + (ry - fy) * 0.5f + 4f * s); path.lineTo(rx, ry); path.lineTo(srx, sry); path.lineTo(ax, ay); path.close()
+        fill.color = shade(base, 0.64f); c.drawPath(path, fill)
+        // Lit ridge and a few strata lines.
+        line(c, 0x60FFF4E0, slx, sly, ax, ay, max(1f, 1.3f * s))
+        line(c, 0x28000000, lx + (fx - lx) * 0.3f, ly + (fy - ly) * 0.3f + 6f * s, fx + (ax - fx) * 0.25f, fy + (ay - fy) * 0.25f, max(1f, s))
+        line(c, 0x28000000, fx + (bx - fx) * 0.5f, fy + (by - fy) * 0.5f, rx + (ax - rx) * 0.3f, ry + (ay - ry) * 0.3f, max(1f, s))
+        if (h > 1.4f) {
+            // Snow cap with a ragged lower edge.
+            val t = 0.3f + r2 * 0.1f
+            path.reset()
+            path.moveTo(ax, ay)
+            path.lineTo(slx + (ax - slx) * (1 - t), sly + (ay - sly) * (1 - t))
+            path.lineTo(ax + (lx - ax) * t * 0.6f, ay + (ly - ay) * t * 0.6f + 3f * s)
+            path.lineTo(ax + (fx - ax) * t, ay + (fy - ay) * t - 2f * s)
+            path.lineTo(ax + (rx - ax) * t * 0.55f, ay + (ry - ay) * t * 0.55f + 3f * s)
+            path.lineTo(srx + (ax - srx) * (1 - t), sry + (ay - sry) * (1 - t))
+            path.close()
+            fill.color = 0xFFF2F5F8.toInt(); c.drawPath(path, fill)
+            tri(c, 0xFFC9D3DE.toInt(), ax, ay, ax + (fx - ax) * t, ay + (fy - ay) * t - 2f * s, srx + (ax - srx) * (1 - t), sry + (ay - sry) * (1 - t))
         }
     }
 
@@ -404,7 +512,14 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         val v = n.variant % 12
         look.level = 0; look.mirror = false; look.variant = v
         when (n.kind) {
-            NodeKind.TREE -> { look.kind = if (v % 2 == 0) NatureSprites.Kind.CONIFER else NatureSprites.Kind.LEAFY; look.mirror = v % 3 == 0 }
+            NodeKind.TREE -> {
+                look.kind = when {
+                    v == 5 || v == 11 -> NatureSprites.Kind.BIRCH
+                    v % 2 == 0 -> NatureSprites.Kind.CONIFER
+                    else -> NatureSprites.Kind.LEAFY
+                }
+                look.mirror = v % 3 == 0
+            }
             NodeKind.BERRIES -> { look.kind = NatureSprites.Kind.BERRIES; look.variant = 0; look.level = (left * 3f).toInt().coerceIn(0, 3) }
             NodeKind.GAME -> { look.kind = NatureSprites.Kind.DEER; look.variant = v % 4; look.mirror = v % 2 == 1 }
             NodeKind.GOLD, NodeKind.STONE -> {
@@ -417,7 +532,9 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
     private fun drawNode(c: Canvas, n: ResourceNode) {
         val l = lookOf(n)
-        sprites.draw(c, l.kind, l.variant, l.level, sx(n.x, n.y), sy(n.x, n.y), s, l.mirror)
+        // Trees sway a touch in the breeze; a shear of ~1% of the height is below hit-test precision.
+        val sway = if (n.kind == NodeKind.TREE) sin(time * 1.1f + n.x * 0.9f + n.y * 0.4f) * 0.012f else 0f
+        sprites.draw(c, l.kind, l.variant, l.level, sx(n.x, n.y), sy(n.x, n.y), s, l.mirror, sway)
     }
 
     /** Pixel-accurate hit test against the sprite drawn for [n]. */
@@ -456,7 +573,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         if (!b.constructed) {
             drawFoundation(c, b, x0, y0, x1, y1)
         } else {
-            ellipse(c, 0x33000000, sx(b.x + 0.3f, b.y + 0.3f), sy(b.x + 0.3f, b.y + 0.3f), t.size * 26f * s, t.size * 11f * s)
+            softShadow(c, sx(b.x + 0.35f, b.y + 0.35f), sy(b.x + 0.35f, b.y + 0.35f), t.size * 30f * s, t.size * 13f * s)
             drawBuildingBody(c, b, t, x0, y0, x1, y1, pc)
             if (b.underAttackTimer > 0f && (time * 6).toInt() % 2 == 0) {
                 circle(c, 0x66FF4020, sx(b.x, b.y), sy(b.x, b.y) - up(0.6f), 6f * s)
@@ -488,18 +605,38 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
     private fun drawFoundation(c: Canvas, b: Building, x0: Float, y0: Float, x1: Float, y1: Float) {
         groundRect(c, 0xFF8A7050.toInt(), b.minX + 0.05f, b.minY + 0.05f, b.maxX - 0.05f, b.maxY - 0.05f)
+        if (s > 0.5f) {
+            // Trampled earth with a few stacked stones waiting to be used.
+            groundOutline(c, 0x50000000, b.minX + 0.05f, b.minY + 0.05f, b.maxX - 0.05f, b.maxY - 0.05f, max(1f, 1.2f * s))
+            val px = sx(x0 + 0.25f, y1 - 0.15f); val py = sy(x0 + 0.25f, y1 - 0.15f)
+            quad(c, 0xFFA89A88.toInt(), px - 7f * s, py, px + 1f * s, py - 2f * s, px + 1f * s, py - 7f * s, px - 7f * s, py - 5f * s)
+            quad(c, 0xFF8C8070.toInt(), px + 1f * s, py - 2f * s, px + 7f * s, py - 5f * s, px + 7f * s, py - 10f * s, px + 1f * s, py - 7f * s)
+            quad(c, 0xFFC4B8A4.toInt(), px - 7f * s, py - 5f * s, px + 1f * s, py - 7f * s, px + 7f * s, py - 10f * s, px - 1f * s, py - 8f * s)
+        }
         val h = buildingHeight(b.type) * 0.6f
         val ph = h * b.progress
         if (ph > 0.02f) box(c, x0, y0, x1, y1, 0f, ph, 0xFFB09070.toInt())
-        // Scaffold poles.
+        // Scaffold: poles at the three visible corners, rails, diagonal braces and a plank walkway.
         val pole = 0xFF6A4A2A.toInt()
         val w = max(1f, 1.3f * s)
-        for ((px, py) in listOf(x0 to y1, x1 to y1, x1 to y0)) {
-            line(c, pole, sx(px, py), sy(px, py), sx(px, py), sy(px, py) - up(h), w)
+        val lx = sx(x0, y1); val ly = sy(x0, y1)
+        val bx = sx(x1, y1); val by = sy(x1, y1)
+        val rx = sx(x1, y0); val ry = sy(x1, y0)
+        val top = up(h); val mid = up(h * 0.5f)
+        line(c, pole, lx, ly, lx, ly - top, w)
+        line(c, pole, bx, by, bx, by - top, w)
+        line(c, pole, rx, ry, rx, ry - top, w)
+        line(c, pole, lx, ly - top, bx, by - top, w)
+        line(c, pole, bx, by - top, rx, ry - top, w)
+        line(c, pole, lx, ly - mid, bx, by - mid, w)
+        line(c, pole, bx, by - mid, rx, ry - mid, w)
+        if (s > 0.5f) {
+            val thin = max(1f, 0.9f * s)
+            line(c, 0xCC7A5A38.toInt(), lx, ly - mid, bx, by - top, thin)
+            line(c, 0xCC7A5A38.toInt(), bx, by - mid, rx, ry - top, thin)
+            // Plank walkway along the south-west rail.
+            quad(c, 0xFFB89468.toInt(), lx, ly - top, bx, by - top, bx - 5f * s, by - top - 3f * s, lx - 5f * s, ly - top - 3f * s)
         }
-        line(c, pole, sx(x0, y1), sy(x0, y1) - up(h), sx(x1, y1), sy(x1, y1) - up(h), w)
-        line(c, pole, sx(x1, y1), sy(x1, y1) - up(h), sx(x1, y0), sy(x1, y0) - up(h), w)
-        line(c, pole, sx(x0, y1), sy(x0, y1) - up(h * 0.5f), sx(x1, y1), sy(x1, y1) - up(h * 0.5f), w)
         hpBar(c, sx(b.x, b.y), sy(b.minX, b.minY) - up(h) - 10f * s, b.type.size * 20f * s, b.progress, 0xFF6CB8FF.toInt())
     }
 
@@ -533,19 +670,28 @@ class Renderer(private val world: World, private val humanId: Int, private val c
                 val k = 0.75f
                 box(c, mx - k, my - k, mx + k, my + k, 0.7f, 0.7f, shade(wallC, 1.05f))
                 pyramidRoof(c, mx - k - 0.05f, my - k - 0.05f, mx + k + 0.05f, my + k + 0.05f, 1.4f, 0.75f, if (age >= Age.GUNPOWDER) 0xFF4A5A7A.toInt() else redRoof)
-                // Door and banners.
-                quad(c, 0xFF4A3020.toInt(), sx(mx - 0.25f, y1), sy(mx - 0.25f, y1), sx(mx + 0.25f, y1), sy(mx + 0.25f, y1), sx(mx + 0.25f, y1), sy(mx + 0.25f, y1) - up(0.4f), sx(mx - 0.25f, y1), sy(mx - 0.25f, y1) - up(0.4f))
+                // Door, windows and banners.
+                door(c, mx, y1, 0.25f, 0.42f)
+                windows(c, x0, y0, mx - 0.4f, y1, 0f, 0.7f, 1, 0)
+                windows(c, mx + 0.4f, y0, x1, y1, 0f, 0.7f, 1, 0)
+                windows(c, x0, y0, x1, my - 0.75f, 0f, 0.7f, 0, 1)
+                windows(c, x0, my + 0.75f, x1, y1, 0f, 0.7f, 0, 1)
+                windows(c, mx - k, my - k, mx + k, my + k, 0.7f, 0.7f, 2, 2)
                 quad(c, pc, sx(x1, my - 0.5f), sy(x1, my - 0.5f) - up(0.6f), sx(x1, my - 0.2f), sy(x1, my - 0.2f) - up(0.6f), sx(x1, my - 0.2f), sy(x1, my - 0.2f) - up(0.2f), sx(x1, my - 0.5f), sy(x1, my - 0.5f) - up(0.25f))
                 flag(c, mx, my, 2.15f, 0.8f, pc)
             }
             BuildingType.HOUSE -> {
                 box(c, x0 + 0.1f, y0 + 0.1f, x1 - 0.1f, y1 - 0.1f, 0f, 0.55f, if (age >= Age.MEDIEVAL) 0xFFE0D0B0.toInt() else plaster)
+                windows(c, x0 + 0.1f, y0 + 0.1f, mx - 0.2f, y1 - 0.1f, 0f, 0.55f, 1, 0)
+                windows(c, x0 + 0.1f, y0 + 0.1f, x1 - 0.1f, my - 0.3f, 0f, 0.55f, 0, 1)
                 gableRoof(c, x0, y0, x1, y1, 0.55f, 0.55f, if (age >= Age.GUNPOWDER) 0xFF6A3A2A.toInt() else brownRoof)
-                quad(c, 0xFF4A3020.toInt(), sx(mx - 0.1f, y1 - 0.1f), sy(mx - 0.1f, y1 - 0.1f), sx(mx + 0.15f, y1 - 0.1f), sy(mx + 0.15f, y1 - 0.1f), sx(mx + 0.15f, y1 - 0.1f), sy(mx + 0.15f, y1 - 0.1f) - up(0.32f), sx(mx - 0.1f, y1 - 0.1f), sy(mx - 0.1f, y1 - 0.1f) - up(0.32f))
+                door(c, mx + 0.05f, y1 - 0.1f, 0.13f, 0.34f)
                 quad(c, pc, sx(x1 - 0.1f, my - 0.15f), sy(x1 - 0.1f, my - 0.15f) - up(0.42f), sx(x1 - 0.1f, my + 0.15f), sy(x1 - 0.1f, my + 0.15f) - up(0.42f), sx(x1 - 0.1f, my + 0.15f), sy(x1 - 0.1f, my + 0.15f) - up(0.22f), sx(x1 - 0.1f, my - 0.15f), sy(x1 - 0.1f, my - 0.15f) - up(0.22f))
             }
             BuildingType.MILL -> {
                 box(c, x0 + 0.15f, y0 + 0.15f, x1 - 0.15f, y1 - 0.15f, 0f, 0.9f, plaster)
+                windows(c, x0 + 0.15f, y0 + 0.15f, x1 - 0.15f, y1 - 0.15f, 0.35f, 0.5f, 1, 0)
+                door(c, (x0 + x1) / 2f, y1 - 0.15f, 0.16f, 0.4f)
                 pyramidRoof(c, x0 + 0.1f, y0 + 0.1f, x1 - 0.1f, y1 - 0.1f, 0.9f, 0.6f, brownRoof)
                 val hx = sx(x1 - 0.15f, my); val hy = sy(x1 - 0.15f, my) - up(0.9f)
                 val a0 = time * 1.2f
@@ -577,6 +723,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             }
             BuildingType.BARRACKS -> {
                 box(c, x0, y0, x1, y1, 0f, 0.7f, if (age >= Age.MEDIEVAL) stone else wood)
+                windows(c, x0, y0, x1, y1, 0.05f, 0.7f, 3, 2)
+                door(c, mx, y1, 0.22f, 0.45f)
                 gableRoof(c, x0 - 0.05f, y0 - 0.05f, x1 + 0.05f, y1 + 0.05f, 0.7f, 0.6f, redRoof)
                 // Weapon rack.
                 for (k in 0 until 3) {
@@ -600,6 +748,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             }
             BuildingType.STABLE -> {
                 box(c, x0, y0, x1, y1 - 0.5f, 0f, 0.6f, wood)
+                door(c, mx, y1 - 0.5f, 0.3f, 0.45f)
+                windows(c, x0, y0, x1, y1 - 0.5f, 0f, 0.6f, 0, 2)
                 gableRoof(c, x0 - 0.05f, y0 - 0.05f, x1 + 0.05f, y1 - 0.45f, 0.6f, 0.5f, 0xFFC8A850.toInt())
                 // Fence.
                 val f = 0xFF6A4A2A.toInt()
@@ -612,6 +762,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             }
             BuildingType.BLACKSMITH -> {
                 box(c, x0, y0, x1, y1, 0f, 0.6f, darkStone)
+                windows(c, x0, y0, x1, y1, 0f, 0.6f, 0, 2)
+                door(c, mx, y1, 0.3f, 0.45f)
                 pyramidRoof(c, x0 - 0.05f, y0 - 0.05f, x1 + 0.05f, y1 + 0.05f, 0.6f, 0.35f, 0xFF4A4440.toInt())
                 box(c, x0 + 0.2f, y0 + 0.2f, x0 + 0.45f, y0 + 0.45f, 0.6f, 0.7f, darkStone)
                 val chx = sx(x0 + 0.32f, y0 + 0.32f); val chy = sy(x0 + 0.32f, y0 + 0.32f) - up(1.3f)
@@ -641,8 +793,9 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             }
             BuildingType.SIEGE_WORKSHOP -> {
                 box(c, x0, y0, x1, y1, 0f, 0.85f, wood)
+                windows(c, x0, y0, x1, y1, 0.1f, 0.85f, 0, 2)
                 gableRoof(c, x0 - 0.05f, y0 - 0.05f, x1 + 0.05f, y1 + 0.05f, 0.85f, 0.55f, 0xFF4E3A2A.toInt())
-                quad(c, 0xFF2A1A10.toInt(), sx(mx - 0.5f, y1), sy(mx - 0.5f, y1), sx(mx + 0.5f, y1), sy(mx + 0.5f, y1), sx(mx + 0.5f, y1), sy(mx + 0.5f, y1) - up(0.65f), sx(mx - 0.5f, y1), sy(mx - 0.5f, y1) - up(0.65f))
+                door(c, mx, y1, 0.5f, 0.65f)
                 flag(c, x1 - 0.2f, y0 + 0.2f, 1.4f, 0.6f, pc)
             }
             BuildingType.TEMPLE -> {
@@ -668,7 +821,9 @@ class Renderer(private val world: World, private val humanId: Int, private val c
                 box(c, x0, y0, x1, y1, 0f, 2.0f, col)
                 box(c, x0 - 0.12f, y0 - 0.12f, x1 + 0.12f, y1 + 0.12f, 2.0f, 0.15f, shade(col, 1.05f))
                 crenellations(c, x0 - 0.12f, y0 - 0.12f, x1 + 0.12f, y1 + 0.12f, 2.15f, col)
-                quad(c, 0xFF2A2018.toInt(), sx(x1, my - 0.1f), sy(x1, my - 0.1f) - up(1.4f), sx(x1, my + 0.1f), sy(x1, my + 0.1f) - up(1.4f), sx(x1, my + 0.1f), sy(x1, my + 0.1f) - up(1.1f), sx(x1, my - 0.1f), sy(x1, my - 0.1f) - up(1.1f))
+                windows(c, x0, y0, x1, y1, 0.4f, 1.0f, 1, 1, slit = true)
+                windows(c, x0, y0, x1, y1, 1.3f, 0.7f, 1, 1, slit = true)
+                door(c, mx, y1, 0.14f, 0.4f)
                 flag(c, mx, my, 2.3f, 0.7f, pc)
             }
             BuildingType.WALL -> {
@@ -677,6 +832,8 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             }
             BuildingType.FORTRESS -> {
                 box(c, x0, y0, x1, y1, 0f, 0.9f, darkStone)
+                windows(c, x0 + 0.5f, y0 + 0.5f, x1 - 0.5f, y1 - 0.5f, 0.2f, 0.7f, 3, 3, slit = true)
+                door(c, mx, y1, 0.35f, 0.6f)
                 crenellations(c, x0, y0, x1, y1, 0.9f, darkStone)
                 val k = 0.4f
                 for ((tx, ty) in listOf(x0 to y0, x1 to y0, x0 to y1, x1 to y1)) {
