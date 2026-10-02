@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="840" viewBox="0 0 1600 840">
+  <!-- Main menu backdrop: a golden-hour valley with a hilltop citadel. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171d38"/>
+      <stop offset="0.28" stop-color="#4a3f68"/>
+      <stop offset="0.5" stop-color="#a86a5e"/>
+      <stop offset="0.62" stop-color="#e49353"/>
+      <stop offset="0.7" stop-color="#f7c87c"/>
+    </linearGradient>
+    <radialGradient id="sunglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff3c8" stop-opacity="0.95"/>
+      <stop offset="0.25" stop-color="#ffd98a" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#f3a05a" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#f3a05a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7d6d98"/>
+      <stop offset="1" stop-color="#c79c86"/>
+    </linearGradient>
+    <linearGradient id="far2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d5278"/>
+      <stop offset="1" stop-color="#9c7f7e"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6b5a58"/>
+      <stop offset="1" stop-color="#3d3a38"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a7a4a"/>
+      <stop offset="0.35" stop-color="#5a6236"/>
+      <stop offset="1" stop-color="#26301c"/>
+    </linearGradient>
+    <linearGradient id="hillL" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c9a15a" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#c9a15a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4a2a"/>
+      <stop offset="1" stop-color="#141a10"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f1b876"/>
+      <stop offset="0.45" stop-color="#b57a66"/>
+      <stop offset="1" stop-color="#3a3f58"/>
+    </linearGradient>
+    <linearGradient id="mist" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe4b0" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#ffe4b0" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ffe4b0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="wallLit" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9a978"/>
+      <stop offset="1" stop-color="#8a6448"/>
+    </linearGradient>
+    <linearGradient id="wallDark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4a3630"/>
+      <stop offset="1" stop-color="#2c2220"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a3a30"/>
+      <stop offset="1" stop-color="#4a2020"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.45" r="0.75">
+      <stop offset="0.45" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.6"/>
+    </radialGradient>
+    <filter id="blur30" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="30"/></filter>
+    <filter id="blur12" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="blur18" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="blur4" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="3" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="18" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough2" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="3" seed="3" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="10" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="11" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0" result="g"/>
+      <feComponentTransfer in="g"><feFuncA type="linear" slope="0.11"/></feComponentTransfer>
+    </filter>
+    <filter id="brush" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.004 0.08" numOctaves="2" seed="5" result="n"/>
+      <feColorMatrix in="n" type="saturate" values="0" result="g"/>
+      <feComponentTransfer in="g"><feFuncA type="linear" slope="0.10"/></feComponentTransfer>
+    </filter>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1600" height="840" fill="url(#sky)"/>
+  <!-- Sun -->
+  <rect x="160" y="60" width="800" height="800" fill="url(#sunglow)"/>
+  <circle cx="560" cy="440" r="64" fill="#fff6d6"/>
+  <circle cx="560" cy="440" r="100" fill="#ffe9a8" opacity="0.4" filter="url(#blur12)"/>
+
+  <!-- Clouds -->
+  <g filter="url(#blur18)" opacity="0.7">
+    <ellipse cx="300" cy="260" rx="260" ry="26" fill="#e9a26a" opacity="0.55"/>
+    <ellipse cx="420" cy="238" rx="150" ry="14" fill="#f6c58d" opacity="0.6"/>
+    <ellipse cx="1150" cy="190" rx="300" ry="22" fill="#c98a74" opacity="0.5"/>
+    <ellipse cx="1300" cy="300" rx="220" ry="16" fill="#eaa877" opacity="0.5"/>
+    <ellipse cx="900" cy="340" rx="180" ry="12" fill="#f7c98f" opacity="0.5"/>
+    <ellipse cx="150" cy="150" rx="140" ry="14" fill="#8b6e86" opacity="0.6"/>
+  </g>
+  <g opacity="0.55" filter="url(#blur4)">
+    <ellipse cx="310" cy="262" rx="200" ry="7" fill="#ffd9a3"/>
+    <ellipse cx="1140" cy="196" rx="220" ry="6" fill="#f3b78a"/>
+    <ellipse cx="1310" cy="305" rx="160" ry="5" fill="#ffd5a0"/>
+  </g>
+
+  <!-- Far mountains -->
+  <g filter="url(#rough)">
+    <path fill="url(#far)" d="M0,520 L120,440 L220,470 L330,400 L430,460 L520,430 L640,490 L760,420 L880,470 L980,410 L1100,460 L1220,400 L1340,450 L1460,420 L1600,480 L1600,700 L0,700 Z"/>
+  </g>
+  <g filter="url(#rough)" opacity="0.95">
+    <path fill="url(#far2)" d="M0,560 L90,500 L200,530 L300,470 L420,520 L560,500 L700,540 L820,490 L940,530 L1060,480 L1180,520 L1300,500 L1420,540 L1600,520 L1600,760 L0,760 Z"/>
+  </g>
+  <!-- Mist in the valley -->
+  <rect x="0" y="470" width="1600" height="140" fill="url(#mist)" filter="url(#blur30)"/>
+
+  <!-- Mid hills -->
+  <g filter="url(#rough2)">
+    <path fill="url(#mid)" d="M0,610 C150,560 260,600 380,570 C500,540 600,600 720,580 C840,560 920,600 1020,590 L1020,720 L0,720 Z"/>
+  </g>
+
+  <!-- Lake -->
+  <path fill="url(#lake)" d="M-20,640 C120,610 330,600 520,612 C700,624 820,650 900,690 L900,900 L-20,900 Z"/>
+  <rect x="520" y="618" width="70" height="170" fill="#ffe3a0" opacity="0.55" filter="url(#blur12)"/>
+  <g opacity="0.5" stroke="#ffe8b8" stroke-width="2">
+    <path d="M300,660 L420,660"/><path d="M500,690 L640,690"/><path d="M250,715 L380,715"/><path d="M560,740 L700,740"/>
+  </g>
+
+  <!-- Citadel hill (right) -->
+  <g filter="url(#rough2)">
+    <path fill="url(#hill)" d="M820,800 C900,700 980,620 1080,560 C1160,512 1220,480 1290,470 C1380,460 1460,500 1540,560 C1580,590 1600,620 1600,640 L1600,900 L820,900 Z"/>
+    <path fill="url(#hillL)" d="M820,800 C900,700 980,620 1080,560 C1160,512 1220,480 1290,470 L1290,800 Z"/>
+  </g>
+
+  <!-- Citadel -->
+  <g>
+    <!-- outer wall -->
+    <rect x="1130" y="455" width="330" height="48" fill="url(#wallDark)"/>
+    <rect x="1130" y="455" width="150" height="48" fill="url(#wallLit)"/>
+    <g fill="#5a4238">
+      <rect x="1130" y="445" width="330" height="12"/>
+    </g>
+    <g fill="#3a2a26">
+      <rect x="1140" y="440" width="12" height="10"/><rect x="1164" y="440" width="12" height="10"/><rect x="1188" y="440" width="12" height="10"/>
+      <rect x="1212" y="440" width="12" height="10"/><rect x="1236" y="440" width="12" height="10"/><rect x="1260" y="440" width="12" height="10"/>
+      <rect x="1284" y="440" width="12" height="10"/><rect x="1308" y="440" width="12" height="10"/><rect x="1332" y="440" width="12" height="10"/>
+      <rect x="1356" y="440" width="12" height="10"/><rect x="1380" y="440" width="12" height="10"/><rect x="1404" y="440" width="12" height="10"/>
+      <rect x="1428" y="440" width="12" height="10"/>
+    </g>
+    <!-- gate -->
+    <path d="M1200,503 L1200,478 A14,14 0 0 1 1228,478 L1228,503 Z" fill="#2a1c18"/>
+    <!-- corner towers -->
+    <rect x="1118" y="400" width="40" height="110" fill="#5a4238"/>
+    <rect x="1118" y="400" width="18" height="110" fill="#b8886a"/>
+    <path d="M1112,402 L1138,350 L1164,402 Z" fill="url(#roof)"/>
+    <rect x="1448" y="405" width="40" height="105" fill="#3c2c28"/>
+    <rect x="1448" y="405" width="14" height="105" fill="#7a5a48"/>
+    <path d="M1442,407 L1468,358 L1494,407 Z" fill="url(#roof)"/>
+    <!-- inner buildings -->
+    <rect x="1180" y="400" width="90" height="60" fill="#4a3630"/>
+    <rect x="1180" y="400" width="40" height="60" fill="#c49670"/>
+    <path d="M1174,402 L1225,372 L1276,402 Z" fill="#6a2e28"/>
+    <rect x="1330" y="395" width="80" height="62" fill="#3c2c28"/>
+    <rect x="1330" y="395" width="30" height="62" fill="#9a7058"/>
+    <path d="M1324,397 L1370,368 L1416,397 Z" fill="#5a2622"/>
+    <!-- keep -->
+    <rect x="1262" y="330" width="80" height="130" fill="url(#wallDark)"/>
+    <rect x="1262" y="330" width="34" height="130" fill="url(#wallLit)"/>
+    <g fill="#5a4238">
+      <rect x="1256" y="322" width="92" height="12"/>
+    </g>
+    <g fill="#3a2a26">
+      <rect x="1258" y="314" width="12" height="10"/><rect x="1280" y="314" width="12" height="10"/><rect x="1302" y="314" width="12" height="10"/><rect x="1324" y="314" width="12" height="10"/>
+    </g>
+    <!-- keep tower -->
+    <rect x="1290" y="250" width="30" height="80" fill="#4a3630"/>
+    <rect x="1290" y="250" width="12" height="80" fill="#c49670"/>
+    <path d="M1284,252 L1305,205 L1326,252 Z" fill="url(#roof)"/>
+    <!-- banner -->
+    <rect x="1304" y="170" width="2" height="38" fill="#2a1c18"/>
+    <path d="M1306,172 L1332,180 L1306,190 Z" fill="#d9412f"/>
+    <!-- windows glowing -->
+    <g fill="#ffd27a">
+      <rect x="1275" y="360" width="6" height="12"/><rect x="1308" y="360" width="6" height="12"/><rect x="1275" y="400" width="6" height="12"/><rect x="1308" y="400" width="6" height="12"/>
+      <rect x="1300" y="275" width="5" height="10"/>
+      <rect x="1200" y="420" width="5" height="10"/><rect x="1240" y="420" width="5" height="10"/>
+      <rect x="1350" y="415" width="5" height="10"/><rect x="1385" y="415" width="5" height="10"/>
+      <rect x="1134" y="430" width="5" height="10"/><rect x="1464" y="430" width="5" height="10"/>
+    </g>
+    <!-- window glow -->
+    <g fill="#ffb860" opacity="0.5" filter="url(#blur4)">
+      <rect x="1273" y="358" width="10" height="16"/><rect x="1306" y="358" width="10" height="16"/>
+      <rect x="1198" y="418" width="9" height="14"/><rect x="1348" y="413" width="9" height="14"/>
+    </g>
+    <!-- Hill town below walls -->
+    <g>
+      <rect x="1060" y="540" width="40" height="30" fill="#4a3630"/><rect x="1060" y="540" width="16" height="30" fill="#b08868"/><path d="M1056,541 L1080,524 L1104,541 Z" fill="#6a2e28"/>
+      <rect x="1110" y="555" width="46" height="34" fill="#3c2c28"/><rect x="1110" y="555" width="18" height="34" fill="#9a7058"/><path d="M1106,556 L1133,536 L1160,556 Z" fill="#5a2622"/>
+      <rect x="1500" y="560" width="42" height="30" fill="#3a2a26"/><rect x="1500" y="560" width="14" height="30" fill="#8a6448"/><path d="M1496,561 L1521,543 L1546,561 Z" fill="#4a2020"/>
+      <g fill="#ffd27a"><rect x="1070" y="552" width="4" height="8"/><rect x="1124" y="568" width="4" height="8"/><rect x="1512" y="572" width="4" height="8"/></g>
+      <!-- winding road -->
+      <path d="M1214,505 C1180,540 1150,580 1120,610 C1090,640 1040,680 1000,720 C960,760 930,780 900,800" stroke="#c9a66a" stroke-width="7" fill="none" opacity="0.45" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- Near ground and trees -->
+  <g filter="url(#rough2)">
+    <path fill="url(#ground)" d="M0,700 C200,680 360,720 520,710 C700,700 760,740 900,730 C1050,720 1120,760 1250,750 C1400,740 1500,780 1600,770 L1600,800 L0,800 Z"/>
+  </g>
+  <g fill="#131a12">
+    <!-- tree clusters -->
+    <path d="M60,760 L85,660 L110,760 Z M95,770 L125,640 L155,770 Z M140,765 L160,690 L180,765 Z"/>
+    <path d="M1540,790 L1565,690 L1590,790 Z M1500,800 L1530,700 L1560,800 Z M1470,800 L1490,730 L1510,800 Z"/>
+    <path d="M700,760 L720,700 L740,760 Z M735,765 L760,680 L785,765 Z"/>
+    <path d="M980,790 L1000,730 L1020,790 Z M1010,800 L1035,710 L1060,800 Z"/>
+    <path d="M1150,800 L1180,720 L1210,800 Z M1200,800 L1222,740 L1244,800 Z"/>
+    <ellipse cx="280" cy="755" rx="60" ry="18"/><ellipse cx="400" cy="765" rx="50" ry="14"/>
+    <ellipse cx="860" cy="770" rx="70" ry="16"/>
+  </g>
+  <!-- Birds -->
+  <g stroke="#2b2238" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.8">
+    <path d="M640,300 q8,-7 16,0 q8,-7 16,0"/>
+    <path d="M690,318 q6,-6 12,0 q6,-6 12,0"/>
+    <path d="M620,338 q5,-5 10,0 q5,-5 10,0"/>
+    <path d="M1050,250 q7,-6 14,0 q7,-6 14,0"/>
+    <path d="M1090,270 q5,-5 10,0 q5,-5 10,0"/>
+  </g>
+
+  <!-- Painterly texture, brush streaks and vignette -->
+  <rect width="1600" height="840" filter="url(#brush)" style="mix-blend-mode:overlay"/>
+  <rect width="1600" height="840" filter="url(#grain)" style="mix-blend-mode:overlay"/>
+  <rect width="1600" height="840" fill="url(#vignette)"/>
+</svg>

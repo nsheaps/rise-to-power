@@ -39,8 +39,12 @@ class Message(val text: String, val color: Int, var age: Float = 0f)
 
 /** Heads-up display: drawn on top of the world and hit-tested for touches. */
 class Hud(private val view: GameView, private val world: World, private val humanId: Int, private val renderer: Renderer, private val ui: UiState, private val d: Float) {
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD) }
-    private val plain = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        setShadowLayer(2f * d, 0f, 1.2f * d, 0xC0000000.toInt())
+    }
+    private val plain = Paint(Paint.ANTI_ALIAS_FLAG).apply { setShadowLayer(1.5f * d, 0f, 1f * d, 0xA0000000.toInt()) }
+    private val skin = HudSkin(view.resources, d)
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val bmp = Paint(Paint.FILTER_BITMAP_FLAG)
@@ -146,6 +150,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
         panel(c, r, 0xF4)
         panels += r
         label(c, "Disconnected", r.centerX(), r.top + 44f * d, 28f, 0xFFFFB060.toInt(), Paint.Align.CENTER)
+        skin.rule(c, r.centerX(), r.top + 54f * d, pw / 2f - 60f * d)
         label(c, "Reconnecting to ${view.hostName()}…", r.centerX(), r.top + 78f * d, 16f, align = Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
         label(c, "Your civilization keeps going without you.", r.centerX(), r.top + 106f * d, 14f, 0xFFBFAF90.toInt(), Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
         label(c, "Forfeit in ${view.clock(secondsLeft)} unless you're back", r.centerX(), r.top + 130f * d, 14f, 0xFFBFAF90.toInt(), Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
@@ -153,10 +158,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
     }
 
     private fun panel(c: Canvas, r: RectF, alpha: Int = 0xE0) {
-        fill.color = Color.argb(alpha, 32, 24, 16)
-        c.drawRoundRect(r, 8f * d, 8f * d, fill)
-        stroke.color = 0xFF8A6A3A.toInt(); stroke.strokeWidth = 1.5f * d
-        c.drawRoundRect(r, 8f * d, 8f * d, stroke)
+        skin.panel(c, r, alpha)
         panels += RectF(r)
     }
 
@@ -174,32 +176,19 @@ class Hud(private val view: GameView, private val world: World, private val huma
         c.drawText(str, x, y, p)
     }
 
-    private fun resIcon(c: Canvas, r: ResourceType, x: Float, y: Float, rad: Float) {
-        val col = when (r) {
-            ResourceType.FOOD -> 0xFFD0453A.toInt()
-            ResourceType.WOOD -> 0xFF9A6A3A.toInt()
-            ResourceType.GOLD -> 0xFFF2C640.toInt()
-            ResourceType.STONE -> 0xFFB4B4B0.toInt()
-        }
-        fill.color = 0xFF1A120A.toInt()
-        c.drawCircle(x, y, rad + 1.5f * d, fill)
-        fill.color = col
-        c.drawCircle(x, y, rad, fill)
-        fill.color = 0x55FFFFFF
-        c.drawCircle(x - rad * 0.3f, y - rad * 0.3f, rad * 0.35f, fill)
-    }
+    private fun resIcon(c: Canvas, r: ResourceType, x: Float, y: Float, rad: Float) = skin.resIcon(c, r, x, y, rad)
+
+    private val chipRect = RectF()
 
     private fun drawTopBar(c: Canvas) {
-        val r = RectF(0f, 0f, w, topH)
-        fill.color = 0xE0201810.toInt()
-        c.drawRect(r, fill)
-        fill.color = 0xFF8A6A3A.toInt()
-        c.drawRect(0f, topH - 1.5f * d, w, topH, fill)
+        skin.topBar(c, w, topH)
         var x = 12f * d
         val cy = topH / 2f
+        chipRect.set(x - 6f * d, 4f * d, x + ResourceType.entries.size * 82f * d - 14f * d, topH - 6f * d)
+        skin.chip(c, chipRect)
         for (res in ResourceType.entries) {
-            resIcon(c, res, x + 8f * d, cy, 8f * d)
-            label(c, player[res].toInt().toString(), x + 21f * d, cy + 5.5f * d, 15f)
+            resIcon(c, res, x + 8f * d, cy - 0.5f * d, 8.5f * d)
+            label(c, player[res].toInt().toString(), x + 22f * d, cy + 5.5f * d, 15f)
             x += 82f * d
         }
         val popColor = if (player.popUsed >= player.popCap) 0xFFFF7060.toInt() else 0xFFF5E9CF.toInt()
@@ -219,11 +208,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
 
     private fun smallButton(c: Canvas, b: HudButton) {
         val pressed = pressed === b || (pressed != null && pressed!!.rect == b.rect)
-        fill.color = if (pressed) 0xFF8A6A3A.toInt() else if (b.active) 0xFF5A7A3A.toInt() else 0xFF4A3220.toInt()
-        c.drawRoundRect(b.rect, 6f * d, 6f * d, fill)
-        stroke.color = if (b.active) 0xFFB0E070.toInt() else 0xFFB08A50.toInt()
-        stroke.strokeWidth = 1.2f * d
-        c.drawRoundRect(b.rect, 6f * d, 6f * d, stroke)
+        skin.button(c, b.rect, true, pressed, b.active)
         label(c, b.label, b.rect.centerX(), b.rect.centerY() + 5f * d, 14f, align = Paint.Align.CENTER)
         buttons += b
     }
@@ -255,10 +240,15 @@ class Hud(private val view: GameView, private val world: World, private val huma
         stroke.pathEffect = null
     }
 
+    private val miniBg = RectF()
+    private val miniWell = RectF()
+
     private fun drawMinimap(c: Canvas) {
         val r = miniRect
-        val bg = RectF(r.left - 4f * d, r.top - 4f * d, r.right + 4f * d, r.bottom + 4f * d)
-        panel(c, bg, 0xC0)
+        miniBg.set(r.left - 8f * d, r.top - 8f * d, r.right + 8f * d, r.bottom + 8f * d)
+        panel(c, miniBg, 0xE8)
+        miniWell.set(r.left - 2f * d, r.top - 2f * d, r.right + 2f * d, r.bottom + 2f * d)
+        skin.well(c, miniWell, 3f * d)
         val layers = view.layers ?: return
         // Diamond: tile (x,y) -> (cx + (x - y) * k, top + (x + y) * k / 2).
         val mw = world.map.width.toFloat()
@@ -306,7 +296,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
     /** Converts a minimap touch to world coordinates, or null if outside. */
     fun minimapToWorld(x: Float, y: Float): Pair<Float, Float>? {
         val r = miniRect
-        if (!RectF(r.left - 4f * d, r.top - 4f * d, r.right + 4f * d, r.bottom + 4f * d).contains(x, y)) return null
+        if (!RectF(r.left - 8f * d, r.top - 8f * d, r.right + 8f * d, r.bottom + 8f * d).contains(x, y)) return null
         val k = r.width() / (2f * world.map.width)
         val a = (x - r.centerX()) / k
         val b = (y - r.top) / (k / 2f)
@@ -325,8 +315,10 @@ class Hud(private val view: GameView, private val world: World, private val huma
             val a = if (m.age > 6f) (7f - m.age) else 1f
             text.textSize = 14f * d
             val tw = text.measureText(m.text)
-            fill.color = Color.argb((140 * a).toInt(), 0, 0, 0)
-            c.drawRoundRect(x - 6f * d, y - 15f * d, x + tw + 6f * d, y + 5f * d, 4f * d, 4f * d, fill)
+            fill.color = Color.argb((150 * a).toInt(), 0, 0, 0)
+            c.drawRoundRect(x - 8f * d, y - 15f * d, x + tw + 8f * d, y + 5f * d, 4f * d, 4f * d, fill)
+            fill.color = Color.argb((200 * a).toInt(), Color.red(m.color), Color.green(m.color), Color.blue(m.color))
+            c.drawRoundRect(x - 8f * d, y - 15f * d, x - 5.5f * d, y + 5f * d, 2f * d, 2f * d, fill)
             label(c, m.text, x, y, 14f, Color.argb((255 * a).toInt(), Color.red(m.color), Color.green(m.color), Color.blue(m.color)))
             y += 22f * d
         }
@@ -337,12 +329,15 @@ class Hud(private val view: GameView, private val world: World, private val huma
         drawBanner(c, t, topH + 8f * d, 0xFFFFE070.toInt())
     }
 
+    private val bannerRect = RectF()
+
     private fun drawBanner(c: Canvas, t: String, top: Float, color: Int) {
         text.textSize = 15f * d
         val tw = text.measureText(t)
-        val r = RectF(w / 2f - tw / 2f - 14f * d, top, w / 2f + tw / 2f + 14f * d, top + 28f * d)
-        panel(c, r, 0xD0)
-        label(c, t, w / 2f, r.centerY() + 5f * d, 15f, color, Paint.Align.CENTER)
+        bannerRect.set(w / 2f - tw / 2f - 26f * d, top, w / 2f + tw / 2f + 26f * d, top + 30f * d)
+        skin.ribbon(c, bannerRect, color)
+        panels += RectF(bannerRect)
+        label(c, t, w / 2f, bannerRect.centerY() + 5f * d, 15f, color, Paint.Align.CENTER)
     }
 
     private fun drawTooltip(c: Canvas, t: String) {
@@ -402,21 +397,9 @@ class Hud(private val view: GameView, private val world: World, private val huma
         }
     }
 
-    private fun commandButton(c: Canvas, b: HudButton, small: Boolean = false) {
+    private fun commandButton(c: Canvas, b: HudButton, small: Boolean = false, ornate: Boolean = false) {
         val isPressed = pressed != null && pressed!!.rect == b.rect
-        val base = when {
-            !b.enabled -> 0xFF3A3028.toInt()
-            isPressed -> 0xFF9A7A4A.toInt()
-            b.active -> 0xFF4E6A30.toInt()
-            else -> 0xFF5A4028.toInt()
-        }
-        fill.color = base
-        c.drawRoundRect(b.rect, 6f * d, 6f * d, fill)
-        fill.color = 0x22FFFFFF
-        c.drawRoundRect(b.rect.left + 2f * d, b.rect.top + 2f * d, b.rect.right - 2f * d, b.rect.centerY(), 5f * d, 5f * d, fill)
-        stroke.color = if (b.active) 0xFFB0E070.toInt() else if (b.enabled) 0xFFC09A5A.toInt() else 0xFF6A5A48.toInt()
-        stroke.strokeWidth = 1.3f * d
-        c.drawRoundRect(b.rect, 6f * d, 6f * d, stroke)
+        skin.button(c, b.rect, b.enabled, isPressed, b.active, ornate)
         if (b.icon != null) {
             c.save()
             c.clipRect(b.rect)
@@ -431,13 +414,17 @@ class Hud(private val view: GameView, private val world: World, private val huma
             label(c, b.label, b.rect.centerX(), b.rect.centerY() + (if (b.sub != null) 0f else 5f) * d, if (small) 12f else 11f, if (b.enabled) 0xFFF5E9CF.toInt() else 0xFF8A7A68.toInt(), Paint.Align.CENTER, maxWidth = b.rect.width() - 4f * d)
         }
         if (b.sub != null) {
-            fill.color = 0xAA000000.toInt()
-            c.drawRect(b.rect.left + 1f * d, b.rect.bottom - 12f * d, b.rect.right - 1f * d, b.rect.bottom - 1f * d, fill)
+            fill.color = 0xB0000000.toInt()
+            c.drawRoundRect(b.rect.left + 2.5f * d, b.rect.bottom - 12.5f * d, b.rect.right - 2.5f * d, b.rect.bottom - 2.5f * d, 3f * d, 3f * d, fill)
             label(c, b.sub, b.rect.centerX(), b.rect.bottom - 3f * d, 8.5f, if (b.enabled) 0xFFFFE8B0.toInt() else 0xFF9A8A70.toInt(), Paint.Align.CENTER, bold = false, maxWidth = b.rect.width() - 4f * d)
         }
         if (b.badge != null) {
-            fill.color = 0xFFC03A2A.toInt()
+            fill.color = 0xFF2A0C08.toInt()
+            c.drawCircle(b.rect.right - 6f * d, b.rect.top + 6f * d, 9f * d, fill)
+            fill.color = 0xFFC83A2A.toInt()
             c.drawCircle(b.rect.right - 6f * d, b.rect.top + 6f * d, 8f * d, fill)
+            fill.color = 0x50FFFFFF
+            c.drawCircle(b.rect.right - 8f * d, b.rect.top + 4f * d, 3f * d, fill)
             label(c, b.badge, b.rect.right - 6f * d, b.rect.top + 10f * d, 10f, Color.WHITE, Paint.Align.CENTER)
         }
         if (b.progress >= 0f) {
@@ -633,8 +620,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
             val e = sel.first()
             val owner = world.players.getOrNull(e.owner)
             val color = owner?.color ?: 0xFFAAAAAA.toInt()
-            fill.color = 0x55000000
-            c.drawRoundRect(iconR, 6f * d, 6f * d, fill)
+            skin.well(c, iconR, 6f * d)
             when (e) {
                 is GameUnit -> {
                     val p = world.players[e.owner]
@@ -681,8 +667,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
             for ((t, list) in counts) {
                 val owner = list.first().owner
                 val cr = RectF(x, y, x + cell, y + cell)
-                fill.color = 0x55000000
-                c.drawRoundRect(cr, 5f * d, 5f * d, fill)
+                skin.well(c, cr, 5f * d)
                 renderer.drawUnitIcon(c, t, world.players[owner].color, RectF(cr.left + 2f * d, cr.top + 2f * d, cr.right - 2f * d, cr.bottom - 2f * d), world.players[owner].age)
                 label(c, "${list.size}", cr.right - 3f * d, cr.bottom - 3f * d, 11f, Color.WHITE, Paint.Align.RIGHT)
                 val avg = list.sumOf { it.hp.toDouble() } / list.sumOf { it.maxHp.toDouble() }
@@ -741,7 +726,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
     }
 
     private fun menuButton(c: Canvas, r: RectF, label: String, enabled: Boolean = true, action: () -> Unit) {
-        commandButton(c, HudButton(r, "", null, enabled, false, { cc, rr -> label(cc, label, rr.centerX(), rr.centerY() + 6f * d, 16f, align = Paint.Align.CENTER) }, action = action))
+        commandButton(c, HudButton(r, "", null, enabled, false, { cc, rr -> label(cc, label, rr.centerX(), rr.centerY() + 6f * d, 16f, align = Paint.Align.CENTER) }, action = action), ornate = true)
     }
 
     private fun drawPauseMenu(c: Canvas) {
@@ -760,11 +745,12 @@ class Hud(private val view: GameView, private val world: World, private val huma
             "Save & Quit" to { view.quitToMenu(save = true) },
         )
         val bh = 44f * d
-        val ph = items.size * (bh + 8f * d) + 64f * d
+        val ph = items.size * (bh + 8f * d) + 68f * d
         val r = RectF(w / 2 - pw / 2, h / 2 - ph / 2, w / 2 + pw / 2, h / 2 + ph / 2)
-        panel(c, r, 0xF0)
+        panel(c, r, 0xF4)
         label(c, if (view.multiplayer) "Game keeps running" else "Paused", r.centerX(), r.top + 34f * d, 22f, 0xFFE2B04A.toInt(), Paint.Align.CENTER)
-        var y = r.top + 50f * d
+        skin.rule(c, r.centerX(), r.top + 44f * d, pw / 2f - 36f * d)
+        var y = r.top + 54f * d
         for ((name, act) in items) {
             menuButton(c, RectF(r.left + 24f * d, y, r.right - 24f * d, y + bh), name, action = act)
             y += bh + 8f * d
@@ -785,6 +771,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
             else -> "Defeat"
         }
         label(c, title, r.centerX(), r.top + 42f * d, 30f, if (title == "Defeat") 0xFFE05A4A.toInt() else 0xFFE2B04A.toInt(), Paint.Align.CENTER)
+        skin.rule(c, r.centerX(), r.top + 52f * d, pw / 2f - 60f * d)
         val msg = view.lastVictoryMessage
         if (msg != null && world.gameOver) label(c, msg, r.centerX(), r.top + 66f * d, 13f, 0xFFBFAF90.toInt(), Paint.Align.CENTER, bold = false)
         val cols = listOf("Player", "Age", "Score", "Gathered", "Kills", "Lost", "Razed", "Techs")
@@ -793,6 +780,8 @@ class Hud(private val view: GameView, private val world: World, private val huma
         val left = r.left + 18f * d
         val width = pw - 36f * d
         for ((i, cname) in cols.withIndex()) label(c, cname, left + colX[i] * width, y, 12f, 0xFFE2B04A.toInt(), if (i == 0) Paint.Align.LEFT else Paint.Align.CENTER)
+        fill.color = 0x66C79A4C
+        c.drawRect(left, y + 6f * d, left + width, y + 7f * d, fill)
         y += 22f * d
         for (p in world.players) {
             val vals = listOf(
