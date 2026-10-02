@@ -65,6 +65,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private val bounds = IntArray(4)
     private val materials = Materials()
     private val sprites = NatureSprites()
+    private val unitSprites = UnitSprites()
     private var time = 0f
     private val probe = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
     private val probeCanvas = Canvas(probe)
@@ -736,7 +737,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
             val x = sx(u.x, u.y); val y = sy(u.x, u.y)
             ghostPaint.colorFilter = PorterDuffColorFilter(world.players[u.owner].color, PorterDuff.Mode.SRC_IN)
             ghostPaint.alpha = 0x90
-            c.saveLayer(x - 24f * s, y - 44f * s, x + 24f * s, y + 6f * s, ghostPaint)
+            c.saveLayer(x - 34f * s, y - 52f * s, x + 34f * s, y + 9f * s, ghostPaint)
             figure(c, u)
             c.restore()
         }
@@ -760,221 +761,118 @@ class Renderer(private val world: World, private val humanId: Int, private val c
         val x = sx(u.x, u.y); val y = sy(u.x, u.y)
         val p = world.players[u.owner]
         val color = p.color
-        ellipse(c, 0x40000000, x, y, 7f * s * (if (isMounted(u.type)) 1.6f else 1f), 3f * s)
-        if (selected) {
-            stroke.color = selColor(u.owner)
-            stroke.strokeWidth = max(1.2f, 1.4f * s)
-            val r = if (isMounted(u.type) || u.type == UnitType.CATAPULT) 13f else 9f
-            c.drawOval(x - r * s, y - r * 0.5f * s, x + r * s, y + r * 0.5f * s, stroke)
-        }
+        unitSprites.drawShadow(c, u.type, x, y, s)
+        if (selected) selectionRing(c, x, y, if (UnitSprites.isMounted(u.type) || u.type == UnitType.CATAPULT) 13f else 9f, selColor(u.owner))
         figure(c, u)
         if (selected || u.hp < u.maxHp) {
-            hpBar(c, x, y - (if (isMounted(u.type)) 34f else 30f) * s, 16f * s, u.hp / u.maxHp, if (selected) 0 else color)
+            unitBar(c, x, y - (if (UnitSprites.isMounted(u.type)) 36f else 31f) * s, 16f * s, u.hp / u.maxHp, if (selected) 0 else color)
         }
+    }
+
+    private val barRect = RectF()
+
+    /** Rounded, framed health bar for units; the fill colour runs red to green with the fraction. */
+    private fun unitBar(c: Canvas, x: Float, y: Float, w: Float, frac: Float, color: Int) {
+        val h = max(3f, 3.4f * s)
+        val f = frac.coerceIn(0f, 1f)
+        val l = x - w / 2; val r = x + w / 2
+        val edge = max(1f, 1.1f * s)
+        fill.color = 0xD8140E08.toInt()
+        barRect.set(l - edge, y - edge, r + edge, y + h + edge)
+        c.drawRoundRect(barRect, h * 0.6f + edge, h * 0.6f + edge, fill)
+        fill.color = 0xFF3A2C24.toInt()
+        barRect.set(l, y, r, y + h)
+        c.drawRoundRect(barRect, h * 0.6f, h * 0.6f, fill)
+        fill.color = when {
+            f > 0.5f -> lerpColor(0xFFE0C030.toInt(), 0xFF58D848.toInt(), (f - 0.5f) * 2f)
+            else -> lerpColor(0xFFE03828.toInt(), 0xFFE0C030.toInt(), f * 2f)
+        }
+        if (f > 0f) {
+            barRect.set(l, y, l + max(h, w * f), y + h)
+            c.drawRoundRect(barRect, h * 0.6f, h * 0.6f, fill)
+            fill.color = 0x48FFFFFF
+            barRect.set(l + h * 0.4f, y + h * 0.15f, l + max(h, w * f) - h * 0.4f, y + h * 0.5f)
+            c.drawRoundRect(barRect, h * 0.25f, h * 0.25f, fill)
+        }
+        if (color != 0) {
+            fill.color = 0xFF1E160F.toInt()
+            c.drawCircle(l - edge, y + h / 2, h * 0.75f + edge * 0.5f, fill)
+            fill.color = color
+            c.drawCircle(l - edge, y + h / 2, h * 0.75f, fill)
+        }
+    }
+
+    /** Glowing ground ellipse under a selected unit. */
+    private fun selectionRing(c: Canvas, x: Float, y: Float, r: Float, color: Int) {
+        val rx = r * s; val ry = r * 0.5f * s
+        stroke.color = (color and 0x00FFFFFF) or 0x48000000
+        stroke.strokeWidth = max(3f, 3.6f * s)
+        c.drawOval(x - rx, y - ry, x + rx, y + ry, stroke)
+        stroke.color = color
+        stroke.strokeWidth = max(1.2f, 1.3f * s)
+        c.drawOval(x - rx, y - ry, x + rx, y + ry, stroke)
+        fill.color = (color and 0x00FFFFFF) or 0x22000000
+        c.drawOval(x - rx, y - ry, x + rx, y + ry, fill)
     }
 
     private fun figure(c: Canvas, u: GameUnit) {
         val p = world.players[u.owner]
         // Screen-space facing: east in iso screen when cos-sin > 0.
         val dir = if (cos(u.facing) - sin(u.facing) >= 0f) 1f else -1f
-        drawFigure(c, u.type, p.color, sx(u.x, u.y), sy(u.x, u.y), s, dir, u.animTime, if (u.moving) 1f else 0f, u.attackAnim, p.age, u.carryType, u.carryAmount, u.order)
+        val anim: UnitSprites.Anim
+        val frame: Int
+        val working = u.type == UnitType.VILLAGER && (u.order == OrderType.GATHER || u.order == OrderType.BUILD)
+        if (u.attackAnim > 0f) {
+            anim = UnitSprites.Anim.ATTACK
+            frame = when {
+                // Gathering and healing keep the animation flag set, so cycle on their own clocks.
+                working -> (u.animTime * 7f).toInt() % 4
+                u.type == UnitType.HEALER -> (time * 6f).toInt() % 4
+                else -> ((1f - u.attackAnim / 0.3f) * 4f).toInt().coerceIn(0, 3)
+            }
+        } else if (u.moving) {
+            anim = UnitSprites.Anim.WALK
+            val rate = if (UnitSprites.isMounted(u.type)) 14f else 9f
+            frame = (u.animTime * rate).toInt() % 6
+        } else {
+            anim = UnitSprites.Anim.IDLE
+            frame = if (((time * 1.1f + u.id * 0.37f) % 1f) < 0.5f) 0 else 1
+        }
+        val carry = when {
+            u.type != UnitType.VILLAGER -> 0
+            u.attackAnim > 0f && u.order == OrderType.BUILD -> 5
+            u.attackAnim > 0f && u.order == OrderType.GATHER -> carryIndex(u.gatherResource ?: u.carryType)
+            u.carryAmount > 0.5f -> carryIndex(u.carryType)
+            else -> 0
+        }
+        unitSprites.draw(c, u.type, p.age, p.color, dir, anim, frame, carry, sx(u.x, u.y), sy(u.x, u.y), s)
     }
 
-    private fun isMounted(t: UnitType) = t == UnitType.SCOUT || t == UnitType.HORSEMAN || t == UnitType.HORSE_ARCHER
+    private fun carryIndex(r: ResourceType?) = when (r) {
+        null -> 0
+        ResourceType.FOOD -> 1
+        ResourceType.WOOD -> 2
+        ResourceType.GOLD -> 3
+        ResourceType.STONE -> 4
+    }
 
-    /** Draws a unit figure with feet at (x, y). Also used for HUD icons. */
+    /** Draws a unit figure with feet at (x, y) using direct vector calls. Used for HUD icons. */
     fun drawFigure(
         c: Canvas, type: UnitType, color: Int, x: Float, y: Float, s: Float, dir: Float,
         anim: Float, moving: Float, attack: Float, age: Age, carry: ResourceType?, carryAmount: Float, order: OrderType,
     ) {
-        val skin = 0xFFE2B88E.toInt()
-        val swing = sin(anim * 11f) * 2.2f * s * moving
-        val lw = max(1f, 1.6f * s)
-        val dark = 0xFF2A2018.toInt()
-        val armor = when {
-            age >= Age.GUNPOWDER -> 0xFF3A4458.toInt()
-            age >= Age.MEDIEVAL -> 0xFFA8A8B0.toInt()
-            age >= Age.CLASSICAL -> 0xFFC09040.toInt()
-            else -> 0xFF8A6440.toInt()
+        val a = when {
+            attack > 0f -> UnitSprites.Anim.ATTACK
+            moving > 0f -> UnitSprites.Anim.WALK
+            else -> UnitSprites.Anim.IDLE
         }
-        val atkSwing = if (attack > 0f) sin(attack * 20f) else 0f
-        val ink = 0xC0201810.toInt()
-        val ow = max(0.8f, 0.9f * s)
-        fun legs(top: Float) {
-            line(c, ink, x - 2f * s, y - top, x - 2f * s + swing, y + 0.5f * s, lw + ow * 2)
-            line(c, ink, x + 2f * s, y - top, x + 2f * s - swing, y + 0.5f * s, lw + ow * 2)
-            line(c, dark, x - 2f * s, y - top, x - 2f * s + swing, y, lw)
-            line(c, dark, x + 2f * s, y - top, x + 2f * s - swing, y, lw)
-            // Boots.
-            line(c, 0xFF4A3424.toInt(), x - 2f * s + swing, y - 1.5f * s, x - 2f * s + swing, y, lw * 1.3f)
-            line(c, 0xFF4A3424.toInt(), x + 2f * s - swing, y - 1.5f * s, x + 2f * s - swing, y, lw * 1.3f)
+        val frame = when (a) {
+            UnitSprites.Anim.ATTACK -> ((1f - attack / 0.3f) * 4f).toInt().coerceIn(0, 3)
+            UnitSprites.Anim.WALK -> (anim * 9f).toInt() % 6
+            UnitSprites.Anim.IDLE -> 0
         }
-        fun torso(col: Int, top: Float, bottom: Float, w: Float = 4.2f) {
-            fill.color = ink
-            c.drawRoundRect(x - w * s - ow, y - top * s - ow, x + w * s + ow, y - bottom * s + ow, 2.4f * s, 2.4f * s, fill)
-            fill.color = shade(col, 0.78f)
-            c.drawRoundRect(x - w * s, y - top * s, x + w * s, y - bottom * s, 2f * s, 2f * s, fill)
-            // Lit side facing the light (upper left).
-            fill.color = shade(col, 1.12f)
-            c.drawRoundRect(x - w * s, y - top * s, x + w * 0.15f * s, y - bottom * s - 0.5f * s, 2f * s, 2f * s, fill)
-            fill.color = 0x30FFFFFF
-            c.drawRect(x - w * s + 0.8f * s, y - top * s + 0.6f * s, x + w * s - 0.8f * s, y - top * s + 1.6f * s, fill)
-        }
-        fun head(hy: Float, helmet: Int?) {
-            circle(c, ink, x, y - hy * s, 3.2f * s + ow)
-            circle(c, shade(skin, 0.82f), x, y - hy * s, 3.2f * s)
-            circle(c, skin, x - 0.6f * s, y - (hy + 0.6f) * s, 2.5f * s)
-            circle(c, 0xFF2A1A12.toInt(), x + dir * 1.3f * s, y - (hy + 0.3f) * s, 0.45f * s) // eye
-            if (helmet != null) {
-                fill.color = helmet
-                c.drawArc(x - 3.6f * s, y - (hy + 3.8f) * s, x + 3.6f * s, y - (hy - 2f) * s, 180f, 180f, true, fill)
-                fill.color = 0x50FFFFFF
-                c.drawArc(x - 2.8f * s, y - (hy + 3.3f) * s, x + 0.5f * s, y - (hy - 1f) * s, 200f, 70f, true, fill)
-            } else {
-                fill.color = 0xFF5A3A22.toInt() // hair
-                c.drawArc(x - 3.3f * s, y - (hy + 3.4f) * s, x + 3.3f * s, y - (hy - 1.2f) * s, 180f, 180f, true, fill)
-            }
-        }
-        fun horse(col: Int) {
-            for (k in 0 until 4) {
-                val lx = x + (-7f + k * 4.5f) * s
-                val ph = if (k % 2 == 0) swing else -swing
-                line(c, ink, lx, y - 8f * s, lx + ph, y + 0.5f * s, lw + ow * 2)
-                line(c, shade(col, if (k % 2 == 0) 0.6f else 0.75f), lx, y - 8f * s, lx + ph, y, lw)
-            }
-            ellipse(c, ink, x, y - 10f * s, 10f * s + ow, 4.6f * s + ow)
-            ellipse(c, shade(col, 0.8f), x, y - 10f * s, 10f * s, 4.6f * s)
-            ellipse(c, shade(col, 1.15f), x - 1.5f * s, y - 11.2f * s, 7.5f * s, 2.8f * s)
-            line(c, ink, x + dir * 8f * s, y - 12f * s, x + dir * 12f * s, y - 18f * s, max(1f, 3.4f * s) + ow * 2)
-            line(c, col, x + dir * 8f * s, y - 12f * s, x + dir * 12f * s, y - 18f * s, max(1f, 3.4f * s))
-            ellipse(c, ink, x + dir * 13.5f * s, y - 18.5f * s, 3.2f * s + ow, 2f * s + ow)
-            ellipse(c, col, x + dir * 13.5f * s, y - 18.5f * s, 3.2f * s, 2f * s)
-            // Mane and tail.
-            line(c, 0xFF2A1E14.toInt(), x + dir * 8.5f * s, y - 14f * s, x + dir * 11.5f * s, y - 19.5f * s, max(1f, 1.4f * s))
-            line(c, shade(col, 0.5f), x - dir * 10f * s, y - 11f * s, x - dir * 13f * s, y - 5f * s, max(1f, 1.8f * s))
-        }
-        when (type) {
-            UnitType.VILLAGER -> {
-                legs(8f * s)
-                torso(shade(color, 0.85f), 18f, 7f)
-                // Belt in neutral colour so citizens read differently from soldiers.
-                fill.color = 0xFF8A6440.toInt()
-                c.drawRect(x - 4.2f * s, y - 10f * s, x + 4.2f * s, y - 8.5f * s, fill)
-                head(21f, null)
-                circle(c, 0xFFC8A060.toInt(), x, y - 23f * s, 2.4f * s) // straw hat
-                val working = order == OrderType.GATHER || order == OrderType.BUILD
-                val a = if (working && attack > 0f) -0.6f + sin(anim * 9f) * 0.9f else 0.6f
-                val hx = x + dir * 4f * s; val hy = y - 15f * s
-                val ex = hx + dir * cos(a) * 9f * s; val ey = hy - sin(a) * 9f * s
-                line(c, 0xFF6A4A2A.toInt(), hx, hy, ex, ey, lw)
-                if (working) circle(c, 0xFF9A9AA0.toInt(), ex, ey, 1.8f * s)
-                if (carry != null && carryAmount > 0.5f) {
-                    val col = when (carry) {
-                        ResourceType.FOOD -> 0xFFD04A3A.toInt()
-                        ResourceType.WOOD -> 0xFF8A5A2A.toInt()
-                        ResourceType.GOLD -> 0xFFF0C838.toInt()
-                        ResourceType.STONE -> 0xFFB0B0B0.toInt()
-                    }
-                    fill.color = col
-                    c.drawRect(x - dir * 7.5f * s, y - 18f * s, x - dir * 3.5f * s, y - 12f * s, fill)
-                }
-            }
-            UnitType.SPEARMAN, UnitType.WARRIOR -> {
-                legs(8f * s)
-                torso(color, 19f, 7f)
-                fill.color = armor
-                c.drawRect(x - 4.2f * s, y - 19f * s, x + 4.2f * s, y - 15f * s, fill)
-                head(22f, armor)
-                if (type == UnitType.SPEARMAN) {
-                    val jab = if (attack > 0f) atkSwing * 4f * s else 0f
-                    if (age >= Age.GUNPOWDER) {
-                        line(c, 0xFF3A2A1A.toInt(), x + dir * (2f * s + jab), y - 20f * s, x + dir * (14f * s + jab), y - 13f * s, max(1f, 1.8f * s))
-                        line(c, 0xFFC8C8D0.toInt(), x + dir * (14f * s + jab), y - 13f * s, x + dir * (18f * s + jab), y - 11f * s, lw)
-                    } else {
-                        line(c, 0xFF6A4A2A.toInt(), x + dir * (5f * s + jab * 0.3f), y - 4f * s, x + dir * (7f * s + jab), y - 34f * s, lw)
-                        tri(c, 0xFFC8C8D0.toInt(), x + dir * (5.5f * s + jab), y - 34f * s, x + dir * (8.5f * s + jab), y - 34f * s, x + dir * (7f * s + jab), y - 39f * s)
-                    }
-                    circle(c, shade(color, 1.15f), x - dir * 4f * s, y - 13f * s, 4.2f * s)
-                    circle(c, armor, x - dir * 4f * s, y - 13f * s, 1.5f * s)
-                } else {
-                    val a = if (attack > 0f) 1.4f - atkSwing * 1.6f else 1.1f
-                    val hx = x + dir * 4f * s; val hy = y - 15f * s
-                    line(c, 0xFFD0D0D8.toInt(), hx, hy, hx + dir * cos(a) * 11f * s, hy - sin(a) * 11f * s, max(1f, 1.9f * s))
-                    fill.color = shade(color, 0.75f)
-                    c.drawRect(x - dir * 8f * s - 4f * s, y - 19f * s, x - dir * 8f * s + 4f * s, y - 7f * s, fill)
-                    line(c, armor, x - dir * 8f * s, y - 19f * s, x - dir * 8f * s, y - 7f * s, lw)
-                }
-            }
-            UnitType.ARCHER -> {
-                legs(8f * s)
-                torso(shade(color, 0.95f), 18f, 7f, 3.8f)
-                head(21f, if (age >= Age.MEDIEVAL) armor else null)
-                if (age >= Age.GUNPOWDER) {
-                    val kick = if (attack > 0f) 2f * s else 0f
-                    line(c, 0xFF3A2A1A.toInt(), x - dir * (2f * s + kick), y - 16f * s, x + dir * (14f * s - kick), y - 18f * s, max(1f, 2f * s))
-                    if (attack > 0.15f) circle(c, 0xCCFFE080.toInt(), x + dir * 16f * s, y - 18f * s, 2.4f * s)
-                } else {
-                    stroke.color = 0xFF6A4A2A.toInt()
-                    stroke.strokeWidth = max(1f, 1.4f * s)
-                    val bx = x + dir * 6f * s
-                    c.drawArc(bx - 5f * s, y - 26f * s, bx + 5f * s, y - 8f * s, if (dir > 0) -80f else 100f, 160f, false, stroke)
-                    line(c, 0xFFE0D8C0.toInt(), bx, y - 25f * s, bx, y - 9f * s, max(0.8f, 0.6f * s))
-                }
-                fill.color = 0xFF6A4A2A.toInt()
-                c.drawRect(x - dir * 6f * s, y - 21f * s, x - dir * 3.5f * s, y - 12f * s, fill)
-            }
-            UnitType.SCOUT, UnitType.HORSEMAN, UnitType.HORSE_ARCHER -> {
-                horse(if (type == UnitType.SCOUT) 0xFFB08050.toInt() else if (type == UnitType.HORSEMAN) 0xFF5A4030.toInt() else 0xFF8A6A48.toInt())
-                fill.color = color
-                c.drawRoundRect(x - 3.5f * s, y - 24f * s, x + 3.5f * s, y - 13f * s, 2f * s, 2f * s, fill)
-                circle(c, skin, x, y - 27f * s, 3f * s)
-                if (type == UnitType.HORSEMAN) {
-                    fill.color = armor
-                    c.drawArc(x - 3.4f * s, y - 31f * s, x + 3.4f * s, y - 25f * s, 180f, 180f, true, fill)
-                    val jab = if (attack > 0f) atkSwing * 4f * s else 0f
-                    line(c, 0xFF6A4A2A.toInt(), x - dir * 6f * s, y - 16f * s, x + dir * (18f * s + jab), y - 24f * s, lw)
-                    tri(c, color, x + dir * 8f * s, y - 22f * s, x + dir * 13f * s, y - 23.5f * s, x + dir * 9f * s, y - 19f * s)
-                } else if (type == UnitType.HORSE_ARCHER) {
-                    stroke.color = 0xFF6A4A2A.toInt()
-                    stroke.strokeWidth = max(1f, 1.3f * s)
-                    val bx = x + dir * 5f * s
-                    c.drawArc(bx - 4f * s, y - 30f * s, bx + 4f * s, y - 16f * s, if (dir > 0) -80f else 100f, 160f, false, stroke)
-                } else {
-                    tri(c, 0xFF6A4A2A.toInt(), x - 3f * s, y - 29f * s, x + 3f * s, y - 29f * s, x, y - 33f * s)
-                }
-            }
-            UnitType.CATAPULT -> {
-                val wood = 0xFF8A6440.toInt()
-                fill.color = shade(wood, 0.8f)
-                c.drawRect(x - 13f * s, y - 9f * s, x + 13f * s, y - 4f * s, fill)
-                circle(c, 0xFF4A3420.toInt(), x - 9f * s, y - 3f * s, 4f * s)
-                circle(c, 0xFF4A3420.toInt(), x + 9f * s, y - 3f * s, 4f * s)
-                circle(c, wood, x - 9f * s, y - 3f * s, 1.5f * s)
-                circle(c, wood, x + 9f * s, y - 3f * s, 1.5f * s)
-                line(c, wood, x - 6f * s, y - 9f * s, x, y - 20f * s, max(1f, 2.4f * s))
-                line(c, wood, x + 6f * s, y - 9f * s, x, y - 20f * s, max(1f, 2.4f * s))
-                if (age >= Age.GUNPOWDER) {
-                    line(c, 0xFF3A3A40.toInt(), x - dir * 4f * s, y - 12f * s, x + dir * 15f * s, y - 16f * s, max(1f, 5f * s))
-                } else {
-                    val a = if (attack > 0f) 1.9f - attack * 3f else 0.5f
-                    val ex = x - dir * cos(a) * 17f * s; val ey = y - 20f * s - sin(a) * 10f * s
-                    line(c, 0xFF6A4A2A.toInt(), x, y - 20f * s, ex, ey, max(1f, 2f * s))
-                    circle(c, 0xFF5A5A5A.toInt(), ex, ey, 2.5f * s)
-                }
-                fill.color = color
-                c.drawRect(x - 13f * s, y - 11f * s, x - 9f * s, y - 9f * s, fill)
-            }
-            UnitType.HEALER -> {
-                tri(c, 0xFFF0EAD8.toInt(), x - 6f * s, y, x + 6f * s, y, x, y - 20f * s)
-                fill.color = color
-                c.drawRect(x - 4.5f * s, y - 11f * s, x + 4.5f * s, y - 9f * s, fill)
-                head(21f, null)
-                fill.color = 0xFFF0EAD8.toInt()
-                c.drawArc(x - 3.8f * s, y - 25f * s, x + 3.8f * s, y - 18f * s, 180f, 180f, true, fill)
-                line(c, 0xFF8A6440.toInt(), x + dir * 6f * s, y, x + dir * 6f * s, y - 28f * s, lw)
-                if (attack > 0f) circle(c, 0x8870FF70.toInt(), x + dir * 6f * s, y - 29f * s, 3.5f * s)
-            }
-        }
+        val carryIdx = if (type == UnitType.VILLAGER && carryAmount > 0.5f) carryIndex(carry) else if (order == OrderType.BUILD) 5 else 0
+        unitSprites.drawDirect(c, type, age, color, dir, a, frame, carryIdx, x, y, s)
     }
 
     // ------------------------------------------------------------------ projectiles & effects
@@ -982,17 +880,44 @@ class Renderer(private val world: World, private val humanId: Int, private val c
     private fun drawProjectile(c: Canvas, p: Projectile) {
         val prog = p.progress()
         val dist = com.nsheaps.risetopower.core.dist(p.sx, p.sy, p.tx, p.ty)
-        val arc = sin(prog * PI.toFloat()) * dist * (if (p.kind == Projectile.BULLET) 0.02f else 0.25f)
-        val x = sx(p.x, p.y); val y = sy(p.x, p.y) - up(0.5f + arc)
+        val arcH = if (p.kind == Projectile.BULLET) 0.02f else 0.25f
+        val arc = sin(prog * PI.toFloat()) * dist * arcH
+        val gx = sx(p.x, p.y); val gy = sy(p.x, p.y)
+        val x = gx; val y = gy - up(0.5f + arc)
+        // Direction of travel on screen: the ground velocity plus the vertical arc derivative.
+        val ddx = sx(p.tx, p.ty) - sx(p.sx, p.sy)
+        val ddy = sy(p.tx, p.ty) - sy(p.sx, p.sy) - cos(prog * PI.toFloat()) * PI.toFloat() * dist * arcH * 32f * s
+        val len = kotlin.math.sqrt(ddx * ddx + ddy * ddy).coerceAtLeast(0.01f)
+        val ux = ddx / len; val uy = ddy / len
+        // Ground shadow.
+        ellipse(c, 0x38000000, gx, gy, 3f * s, 1.4f * s)
+        val team = world.players[p.owner].color
         when (p.kind) {
             Projectile.ARROW -> {
-                val dx = sx(p.tx, p.ty) - sx(p.sx, p.sy)
-                val dy = sy(p.tx, p.ty) - sy(p.sx, p.sy) - (cos(prog * PI.toFloat()) * dist * 0.25f) * 32f * s * 1.5f
-                val len = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(0.01f)
-                line(c, 0xFF3A2A1A.toInt(), x - dx / len * 7f * s, y - dy / len * 7f * s, x, y, max(1f, 1.1f * s))
+                val l = 9f * s
+                line(c, 0x30201810, x - ux * l * 2.2f, y - uy * l * 2.2f, x - ux * l, y - uy * l, max(1f, 1.4f * s))
+                line(c, 0xFF4A3220.toInt(), x - ux * l, y - uy * l, x, y, max(1f, 1.1f * s))
+                // Fletching in the owner's colour, steel head.
+                val px = -uy; val py = ux
+                val fl = l - 2.2f * s
+                line(c, team, x - ux * fl, y - uy * fl, x - ux * (l + 0.5f * s) + px * 1.1f * s, y - uy * (l + 0.5f * s) + py * 1.1f * s, max(0.7f, 0.8f * s))
+                line(c, team, x - ux * fl, y - uy * fl, x - ux * (l + 0.5f * s) - px * 1.1f * s, y - uy * (l + 0.5f * s) - py * 1.1f * s, max(0.7f, 0.8f * s))
+                line(c, 0xFFD8DCE4.toInt(), x - ux * 2f * s, y - uy * 2f * s, x + ux * 1.5f * s, y + uy * 1.5f * s, max(1f, 1.6f * s))
             }
-            Projectile.STONE -> circle(c, 0xFF4A4440.toInt(), x, y, 3f * s)
-            else -> circle(c, 0xFFFFE070.toInt(), x, y, 1.5f * s)
+            Projectile.STONE -> {
+                val r = 3f * s
+                circle(c, 0x40201810, x - ux * r * 2.5f, y - uy * r * 2.5f, r * 0.8f)
+                circle(c, 0xFF1E160F.toInt(), x, y, r + max(0.8f, 0.7f * s))
+                circle(c, 0xFF4E4A48.toInt(), x, y, r)
+                circle(c, 0xFF7A7672.toInt(), x - r * 0.3f, y - r * 0.35f, r * 0.55f)
+                circle(c, 0x60FFFFFF, x - r * 0.4f, y - r * 0.45f, r * 0.22f)
+            }
+            else -> {
+                val l = 7f * s
+                line(c, 0x50FFE080, x - ux * l * 1.6f, y - uy * l * 1.6f, x, y, max(1.5f, 2.6f * s))
+                line(c, 0xFFFFF0B0.toInt(), x - ux * l, y - uy * l, x, y, max(1f, 1.2f * s))
+                circle(c, 0xFFFFFFFF.toInt(), x, y, max(1f, 1.3f * s))
+            }
         }
     }
 
@@ -1026,7 +951,13 @@ class Renderer(private val world: World, private val humanId: Int, private val c
                         circle(c, Color.argb((150 * (1 - f)).toInt(), 140, 120, 90), x + cos(a) * r, y + sin(a) * r * 0.5f - f * 10f * s, (8f + f * 10f) * s)
                     }
                 }
-                Effect.PUFF -> circle(c, Color.argb((120 * (1 - f)).toInt(), 90, 80, 70), x, y - 8f * s - f * 8f * s, (4f + f * 6f) * s)
+                Effect.PUFF -> {
+                    // A few smoke wisps drifting up and apart.
+                    val a = Color.argb((110 * (1 - f) * (1 - f)).toInt(), 120, 110, 100)
+                    circle(c, a, x, y - 8f * s - f * 10f * s, (3.5f + f * 6f) * s)
+                    circle(c, a, x - (3f + f * 6f) * s, y - 5f * s - f * 7f * s, (2.5f + f * 4f) * s)
+                    circle(c, a, x + (3f + f * 5f) * s, y - 7f * s - f * 9f * s, (2f + f * 4f) * s)
+                }
                 Effect.MOVE_MARK, Effect.ATTACK_MARK -> {
                     stroke.color = if (e.kind == Effect.MOVE_MARK) Color.argb((255 * (1 - f)).toInt(), 120, 255, 110) else Color.argb((255 * (1 - f)).toInt(), 255, 80, 60)
                     stroke.strokeWidth = max(1.5f, 2f * s)
@@ -1070,7 +1001,7 @@ class Renderer(private val world: World, private val humanId: Int, private val c
 
     fun drawUnitIcon(c: Canvas, type: UnitType, color: Int, r: RectF, age: Age) {
         val size = min(r.width(), r.height())
-        val sc = size / (if (type == UnitType.CATAPULT || isMounted(type)) 44f else 40f)
+        val sc = size / (if (type == UnitType.CATAPULT || UnitSprites.isMounted(type)) 46f else 42f)
         drawFigure(c, type, color, r.centerX(), r.bottom - size * 0.12f, sc, 1f, 0.3f, 0f, 0f, age, null, 0f, OrderType.IDLE)
     }
 
