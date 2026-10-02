@@ -231,11 +231,13 @@ class MainActivity : Activity() {
             setTextColor(0xFFE8DCC4.toInt())
             setShadowLayer(3f * dp, 0f, 1.5f * dp, 0xCC000000.toInt())
             textSize = 16f
-            layoutParams = LinearLayout.LayoutParams((190 * dp).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+            // The label takes what the control leaves, so a narrow panel squeezes the label
+            // (which wraps) instead of pushing the control past the panel's edge.
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         r.addView(l)
         r.addView(control)
-        r.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        r.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         return r
     }
 
@@ -258,7 +260,7 @@ class MainActivity : Activity() {
             // Float the panel over the backdrop and cap its width on wide screens.
             val m = (10 * dp).toInt()
             lp.setMargins(m, m, m, m)
-            lp.width = min(resources.configuration.screenWidthDp - 20, 760) * dp.toInt()
+            lp.width = (min(resources.configuration.screenWidthDp - 20, 760) * dp).toInt()
         }
         wrap.addView(content, lp)
         addView(wrap, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))

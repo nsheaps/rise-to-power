@@ -67,6 +67,36 @@ class SimulationTest {
     }
 
     @Test
+    fun villagersSentToATreeInsideAGroveDoNotJam() {
+        for (seed in 1L..3L) {
+            val w = World(settings(2, MapSize.LARGE, seed = seed, humanFirst = true))
+            val m = w.map
+            // A clear 20x14 patch (trees in it are removed) away from the starting towns.
+            var spot: Pair<Int, Int>? = null
+            loop@ for (y in 4 until m.height - 20 step 3) for (x in 4 until m.width - 24 step 3) {
+                val clear = (x until x + 20).all { tx -> (y until y + 14).all { ty ->
+                    val i = m.idx(tx, ty)
+                    m.terrain[i].buildable && (m.occupant[i] < 0 || w.get(m.occupant[i]) is ResourceNode)
+                } }
+                if (clear && w.buildings.none { it.distanceTo(x + 10f, y + 7f) < 12f }) { spot = x to y; break@loop }
+            }
+            val (x0, y0) = spot!!
+            for (n in w.nodes.filter { it.tx in x0 - 1..x0 + 20 && it.ty in y0 - 1..y0 + 14 }) w.removeEntity(n)
+            w.addBuilding(0, BuildingType.LUMBER_CAMP, x0 + 1, y0 + 5, true)
+            for (tx in x0 + 13 until x0 + 18) for (ty in y0 + 3 until y0 + 11) w.spawnNode(NodeKind.TREE, tx, ty)
+            val vills = (0 until 8).map { w.spawnUnit(0, UnitType.VILLAGER, x0 + 4f + it % 2, y0 + 4f + it / 2) }
+            // The whole group sent to a tree no one can reach until the trees around it fall.
+            val tree = w.nodes.first { it.tx == x0 + 15 && it.ty == y0 + 7 }
+            w.commandGather(vills.map { it.id }, tree.id)
+            val p = w.players[0]
+            val before = p[ResourceType.WOOD]
+            run(w, 120f)
+            // They used to pile up at the grove's edge for good and gather nothing.
+            assertTrue("seed $seed wood: ${p[ResourceType.WOOD]} vs $before", p[ResourceType.WOOD] > before + 200f)
+        }
+    }
+
+    @Test
     fun villagersPickBerries() {
         for (seed in 1L..6L) for (type in MapType.entries) {
             val w = World(settings(2, seed = seed, type = type, humanFirst = true))
