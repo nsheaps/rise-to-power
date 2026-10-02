@@ -19,6 +19,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LockstepTest {
     /** Two humans and one AI on a small map. */
@@ -132,6 +133,99 @@ class LockstepTest {
     }
 
     @Test
+    fun droppedPlayerRejoinsWhileTheirCivilizationCarriesOn() {
+        val (host, guest, links) = startGame(15L)
+        // Reconnecting opens a fresh connection, which the host's listener hands to the game.
+        val hostReachable = AtomicBoolean(false)
+        guest.reconnect = {
+            if (!hostReachable.get()) null else linkPair().let { (h, g) -> host.accept(h); g }
+        }
+        val villagers = guest.world.units.filter { it.owner == 1 && it.type == UnitType.VILLAGER }.map { it.id }
+        val tc = guest.world.townCenters(1).first()
+        play(host, guest, 0.6f) { i -> if (i == 0) guest.issue(Command.Move(villagers, tc.x + 9f, tc.y + 9f, false)) }
+
+        // Bluetooth drops.
+        links.second.close()
+        val walker = host.world.get(villagers.first()) as GameUnit
+        val (x0, y0) = walker.x to walker.y
+        play(host, guest, 0.5f)
+        val frozenAt = guest.turn
+        val hostTurn = host.turn
+        play(host, guest, 2f)
+        assertNotNull("guest shows it is disconnected", guest.reconnectSecondsLeft)
+        assertEquals("guest's game is on hold", frozenAt, guest.turn)
+        assertTrue("host keeps playing", host.turn >= hostTurn + 15)
+        assertEquals(listOf("Guest"), host.away.map { it.name })
+        assertTrue("seconds left counts down", host.away.single().secondsLeft in 100f..Lockstep.FORFEIT_SECONDS)
+        assertTrue("guest's citizens keep walking", walker.distanceTo(x0, y0) > 1f)
+        guest.issue(Command.Stop(villagers)) // ignored: nobody to send it to
+
+        hostReachable.set(true)
+        val end = System.currentTimeMillis() + 10_000
+        while (guest.reconnectSecondsLeft != null && System.currentTimeMillis() < end) play(host, guest, 0.1f)
+        assertEquals("reconnected", null, guest.reconnectSecondsLeft)
+        play(host, guest, 2f)
+        catchUp(host, guest)
+        assertEquals(host.world.checksum(), guest.world.checksum())
+        assertTrue(host.away.isEmpty())
+        assertTrue(guest.away.isEmpty())
+        assertFalse(host.world.players[1].defeated)
+        assertFalse(guest.offline)
+        // Commands flow again after rejoining.
+        guest.issue(Command.Move(villagers, tc.x, tc.y, false))
+        play(host, guest, 1f)
+        catchUp(host, guest)
+        assertEquals(host.world.checksum(), guest.world.checksum())
+        host.leave(); guest.leave()
+    }
+
+    @Test
+    fun playerAwayForTwoMinutesForfeits() {
+        val (host, guest, links) = startGame(17L)
+        guest.reconnect = { null }
+        play(host, guest, 0.5f)
+        links.second.close()
+        repeat(Lockstep.FORFEIT_TURNS - 20) { host.update(Lockstep.TURN_TIME); guest.update(Lockstep.TURN_TIME) }
+        assertFalse("still time to come back", host.world.players[1].defeated)
+        assertNotNull(guest.reconnectSecondsLeft)
+        repeat(40) { host.update(Lockstep.TURN_TIME); guest.update(Lockstep.TURN_TIME) }
+        assertTrue("host resigned the absent player", host.world.players[1].defeated)
+        assertTrue("host plays on alone", host.offline)
+        assertNotNull(guest.forfeitReason)
+        assertEquals(null, guest.reconnectSecondsLeft)
+        assertTrue("guest sees its own defeat", guest.world.players[1].defeated)
+        host.leave(); guest.leave()
+    }
+
+    @Test
+    fun playerWhoRestartedTheAppRejoinsFromTheJoinScreen() {
+        val (host, guest, links) = startGame(19L)
+        play(host, guest, 0.5f)
+        // The app was closed: the connection drops and the old session is gone.
+        links.second.close()
+        repeat(10) { host.update(Lockstep.TURN_TIME); Thread.sleep(2) }
+        assertEquals(listOf("Guest"), host.away.map { it.name })
+
+        // Someone else can't take the seat.
+        val (h1, g1) = linkPair()
+        host.accept(h1)
+        val stranger = JoinLobby(g1, "Host", "Zoe", 0)
+        waitFor("stranger turned away") { host.update(Lockstep.TURN_TIME / 8); stranger.poll(); stranger.closedReason }
+
+        val (h2, g2) = linkPair()
+        host.accept(h2)
+        val lobby = JoinLobby(g2, "Host", "Guest", 1)
+        val back = waitFor("rejoined") { host.update(Lockstep.TURN_TIME / 8); lobby.poll() }
+        assertEquals(1, back.localPlayer)
+        play(host, back, 1f)
+        catchUp(host, back)
+        assertEquals(host.world.checksum(), back.world.checksum())
+        assertTrue(host.away.isEmpty())
+        host.leave(); back.leave()
+        guest.leave()
+    }
+
+    @Test
     fun hostWaitsForASlowGuest() {
         val (host, guest) = startGame(13L)
         // The guest stops processing; the host must not run away from it.
@@ -173,6 +267,12 @@ class LockstepTest {
         assertEquals(turn, Message.decode(turn.encode()))
         val hello = Message.Hello(1, "Ana", 3)
         assertEquals(hello, Message.decode(hello.encode()))
+        for (m in listOf(Message.Rejoin(2, 3, -77L), Message.Ping, Message.Away(listOf(1 to 1200, 3 to 5)))) {
+            assertEquals(m, Message.decode(m.encode()))
+        }
+        val start = Message.decode(Message.Start(2, 17, byteArrayOf(1, 2, 3), 99L).encode()) as Message.Start
+        assertEquals("2 17 99", "${start.playerId} ${start.turn} ${start.token}")
+        assertEquals(listOf<Byte>(1, 2, 3), start.snapshot.toList())
     }
 
     @Test

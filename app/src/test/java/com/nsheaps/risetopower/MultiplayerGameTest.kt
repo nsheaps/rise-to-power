@@ -29,6 +29,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.net.ServerSocket
 import java.net.Socket
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Plays a joined player's game screen against a host session running in the test. */
 @RunWith(RobolectricTestRunner::class)
@@ -47,13 +50,15 @@ class MultiplayerGameTest {
         ),
     )
 
+    private fun linkPair(): Pair<StreamLink, StreamLink> = ServerSocket(0).use { server ->
+        val a = Socket("127.0.0.1", server.localPort)
+        val b = server.accept()
+        StreamLink(a.getInputStream(), a.getOutputStream(), a, "host") to StreamLink(b.getInputStream(), b.getOutputStream(), b, "guest")
+    }
+
     @Test
     fun guestCommandsReachTheHost() {
-        val (hostSide, guestSide) = ServerSocket(0).use { server ->
-            val a = Socket("127.0.0.1", server.localPort)
-            val b = server.accept()
-            StreamLink(a.getInputStream(), a.getOutputStream(), a, "host") to StreamLink(b.getInputStream(), b.getOutputStream(), b, "guest")
-        }
+        val (hostSide, guestSide) = linkPair()
         val host = Lockstep.host(World(settings()), 0, listOf(Lockstep.Peer(hostSide, 1, "Guest")))
         val start = generateSequence { guestSide.take(2000) }.map { Message.decode(it) }.first { it is Message.Start } as Message.Start
         NetGame.hand(Lockstep.join(guestSide, "Host", start))
@@ -113,5 +118,56 @@ class MultiplayerGameTest {
         play(0.5f)
         assertTrue(host.offline)
         assertTrue(host.world.players[1].defeated)
+    }
+
+    @Test
+    fun guestScreenShowsDisconnectedUntilItRejoins() {
+        val (hostSide, guestSide) = linkPair()
+        val host = Lockstep.host(World(settings()), 0, listOf(Lockstep.Peer(hostSide, 1, "Guest")))
+        val start = generateSequence { guestSide.take(2000) }.map { Message.decode(it) }.first { it is Message.Start } as Message.Start
+        val session = Lockstep.join(guestSide, "Host", start)
+        val hostReachable = AtomicBoolean(false)
+        session.reconnect = { if (hostReachable.get()) linkPair().let { (h, g) -> host.accept(h); g } else null }
+        NetGame.hand(session)
+
+        val activity = Robolectric.buildActivity(GameActivity::class.java, Intent().putExtra(GameActivity.EXTRA_NET, true)).setup().get()
+        activity.awaitLoaded()
+        shadowOf(Looper.getMainLooper()).idle()
+        val view = activity.view!!
+        fun play(seconds: Float) {
+            repeat((seconds / Lockstep.TURN_TIME).toInt()) {
+                host.update(Lockstep.TURN_TIME)
+                Thread.sleep(3)
+                view.simulate(Lockstep.TURN_TIME)
+            }
+        }
+        play(1f)
+        assertEquals(null, view.disconnectedSecondsLeft())
+
+        // Bluetooth drops: the guest's screen says so while the host's game goes on.
+        guestSide.close()
+        play(1.5f)
+        val left = view.disconnectedSecondsLeft()
+        assertTrue("disconnected screen: $left", left != null && left > 100f)
+        assertEquals(null, view.networkStatus())
+        assertEquals(listOf("Guest"), host.away.map { it.name })
+        val out = File(System.getProperty("screenshot.dir") ?: "build/screenshots").apply { mkdirs() }
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        repeat(2) { view.renderOffscreen(Canvas(bmp), w, h) }
+        FileOutputStream(File(out, "12_disconnected.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        assertTrue(view.hudForTest!!.buttons.any { it.rect.width() > 0 && it.enabled })
+
+        hostReachable.set(true)
+        val end = System.currentTimeMillis() + 10_000
+        while (view.disconnectedSecondsLeft() != null && System.currentTimeMillis() < end) play(0.1f)
+        assertEquals("rejoined", null, view.disconnectedSecondsLeft())
+        play(1f)
+        val deadline = System.currentTimeMillis() + 5000
+        while (view.session.turn < host.turn && System.currentTimeMillis() < deadline) { view.simulate(Lockstep.TURN_TIME / 8); Thread.sleep(1) }
+        assertEquals(host.turn, view.session.turn)
+        assertEquals(host.world.checksum(), view.world.checksum())
+        assertTrue(host.away.isEmpty())
+        view.session.leave()
+        host.leave()
     }
 }
