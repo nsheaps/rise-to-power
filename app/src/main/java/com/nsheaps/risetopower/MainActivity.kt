@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import kotlin.math.min
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -32,10 +32,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         root = FrameLayout(this)
-        root.background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(0xFF2A1F14.toInt(), 0xFF140E09.toInt())
-        )
+        root.background = BackdropDrawable(this)
         setContentView(root)
         Immersive.apply(window)
     }
@@ -82,9 +79,15 @@ class MainActivity : Activity() {
         root.removeAllViews()
         root.tag = "main"
         val col = column()
+        val short = resources.configuration.screenHeightDp < 420
+        col.addView(EmblemView(this).apply {
+            val s = ((if (short) 64 else 96) * dp).toInt()
+            layoutParams = LinearLayout.LayoutParams(s, s)
+        })
         col.addView(title("RISE TO POWER", 44f))
+        col.addView(flourish())
         col.addView(subtitle("Build an empire from the Ancient to the Industrial Age"))
-        col.addView(space(24))
+        col.addView(space(if (short) 10 else 20))
         if (SaveStore.hasSave(this)) {
             col.addView(menuButton("Continue") {
                 startActivity(Intent(this, GameActivity::class.java).putExtra(GameActivity.EXTRA_LOAD, true))
@@ -101,9 +104,10 @@ class MainActivity : Activity() {
     private fun showSetup() {
         root.removeAllViews()
         root.tag = "setup"
-        val col = column()
+        val col = column(framed = true)
         col.addView(title("New Game", 32f))
-        col.addView(space(8))
+        col.addView(flourish())
+        col.addView(space(4))
 
         val civ = option("civ", Civ.entries.map { it.displayName }, 0)
         val opponents = option("opponents", (1..7).map { "$it" }, 1)
@@ -163,11 +167,11 @@ class MainActivity : Activity() {
         for (b in buttons) bar.addView(b)
         // Options scroll; the buttons stay pinned at the bottom so they are always reachable.
         val screen = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        screen.addView(scroll(content), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        screen.addView(scroll(content, framed = content.background is PanelDrawable), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val holder = FrameLayout(this).apply {
-            setBackgroundColor(0xCC140E09.toInt())
+            background = PanelDrawable(dp, bar = true)
             val pad = (6 * dp).toInt()
-            setPadding(pad, pad, pad, pad)
+            setPadding(pad, pad + (3 * dp).toInt(), pad, pad)
         }
         holder.addView(bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         screen.addView(holder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -177,8 +181,9 @@ class MainActivity : Activity() {
     private fun showHelp() {
         root.removeAllViews()
         root.tag = "help"
-        val col = column()
+        val col = column(framed = true)
         col.addView(title("How to Play", 32f))
+        col.addView(flourish())
         val text = TextView(this).apply {
             setTextColor(0xFFE8DCC4.toInt())
             textSize = 14f
@@ -188,8 +193,9 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         col.addView(text)
+        col.addView(space(8))
         col.addView(menuButton("Back") { showMain() })
-        root.addView(scroll(col))
+        root.addView(scroll(col, framed = true))
     }
 
     // ------------------------------------------------------------------ widgets
@@ -197,7 +203,7 @@ class MainActivity : Activity() {
     internal inner class Option(val key: String, val values: List<String>, default: Int) {
         var index = prefs.getInt(key, default).coerceIn(0, values.size - 1)
         var onChange: (() -> Unit)? = null
-        val view: Button = styledButton(values[index], 220) {}.also { b ->
+        val view: Button = styledButton(values[index], 220, chevrons = true) {}.also { b ->
             b.setOnClickListener {
                 index = (index + 1) % values.size
                 b.text = values[index]
@@ -223,6 +229,7 @@ class MainActivity : Activity() {
         val l = TextView(this).apply {
             text = label
             setTextColor(0xFFE8DCC4.toInt())
+            setShadowLayer(3f * dp, 0f, 1.5f * dp, 0xCC000000.toInt())
             textSize = 16f
             layoutParams = LinearLayout.LayoutParams((190 * dp).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
@@ -234,22 +241,31 @@ class MainActivity : Activity() {
 
     // The column spans the screen width so every text view gets an exact width to wrap or
     // shrink against; wrap-content widths let text be measured narrower than it draws.
-    internal fun column() = LinearLayout(this).apply {
+    // A framed column sits on a panel so its text stays readable over the painting.
+    internal fun column(framed: Boolean = false) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
-        val pad = (24 * dp).toInt()
-        setPadding(pad, pad, pad, pad)
+        val pad = (if (framed) 20 else 24) * dp
+        setPadding(pad.toInt(), (if (framed) 14 * dp else pad).toInt(), pad.toInt(), (if (framed) 18 * dp else pad).toInt())
+        if (framed) background = PanelDrawable(dp)
     }
 
-    internal fun scroll(content: View) = ScrollView(this).apply {
+    internal fun scroll(content: View, framed: Boolean = false) = ScrollView(this).apply {
         isFillViewport = true
         val wrap = FrameLayout(this@MainActivity)
-        wrap.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+        if (framed) {
+            // Float the panel over the backdrop and cap its width on wide screens.
+            val m = (10 * dp).toInt()
+            lp.setMargins(m, m, m, m)
+            lp.width = min(resources.configuration.screenWidthDp - 20, 760) * dp.toInt()
+        }
+        wrap.addView(content, lp)
         addView(wrap, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     /** Single-line heading that shrinks to fit the screen width. */
-    internal fun title(text: String, size: Float) = TextView(this).apply {
+    internal fun title(text: String, size: Float) = GoldTitleView(this).apply {
         this.text = text
         typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
         setTextColor(0xFFE2B04A.toInt())
@@ -261,10 +277,16 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (size * 1.5f * dp * fontScale()).toInt())
     }
 
+    /** The gold rule drawn under a heading. */
+    internal fun flourish() = FlourishView(this).apply {
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (14 * dp).toInt())
+    }
+
     internal fun subtitle(text: String, size: Float = 15f) = TextView(this).apply {
         this.text = text
         textSize = size
-        setTextColor(0xFFBFAF90.toInt())
+        setTextColor(0xFFD8CBAE.toInt())
+        setShadowLayer(3f * dp, 0f, 1.5f * dp, 0xCC000000.toInt())
         gravity = Gravity.CENTER
         setPadding(0, (4 * dp).toInt(), 0, (4 * dp).toInt())
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -274,26 +296,26 @@ class MainActivity : Activity() {
 
     internal fun space(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, (h * dp).toInt()) }
 
-    internal fun menuButton(text: String, width: Int = 260, onClick: () -> Unit) = styledButton(text, width, onClick).apply {
+    internal fun menuButton(text: String, width: Int = 260, onClick: () -> Unit) = styledButton(text, width, onClick = onClick).apply {
         textSize = 18f
     }
 
-    internal fun styledButton(text: String, width: Int, onClick: () -> Unit) = Button(this).apply {
+    internal fun styledButton(text: String, width: Int, chevrons: Boolean = false, onClick: () -> Unit) = Button(this).apply {
         this.text = text
         isAllCaps = false
         textSize = 15f
         setTextColor(0xFFF5E9CF.toInt())
+        setShadowLayer(2f * dp, 0f, 1.5f * dp, 0xD0000000.toInt())
         typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-        background = GradientDrawable().apply {
-            cornerRadius = 8 * dp
-            colors = intArrayOf(0xFF6B4A2B.toInt(), 0xFF4A3220.toInt())
-            setStroke((2 * dp).toInt(), 0xFFE2B04A.toInt())
-        }
+        background = OrnateButtonDrawable(dp, chevrons)
         stateListAnimator = null
-        minHeight = (48 * dp).toInt()
-        minimumHeight = (48 * dp).toInt()
+        // The frame is drawn inside the view; keep the label clear of it (and of the chevrons).
+        val px = (if (chevrons) 24 else 14) * dp
+        setPadding(px.toInt(), (6 * dp).toInt(), px.toInt(), (8 * dp).toInt())
+        minHeight = (50 * dp).toInt()
+        minimumHeight = (50 * dp).toInt()
         val lp = LinearLayout.LayoutParams((width * dp).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
-        lp.setMargins((6 * dp).toInt(), (5 * dp).toInt(), (6 * dp).toInt(), (5 * dp).toInt())
+        lp.setMargins((6 * dp).toInt(), (4 * dp).toInt(), (6 * dp).toInt(), (4 * dp).toInt())
         layoutParams = lp
         setOnClickListener { onClick() }
     }
