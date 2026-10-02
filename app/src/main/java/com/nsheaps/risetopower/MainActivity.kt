@@ -335,7 +335,8 @@ Military
 Multiplayer
 - Up to 4 phones can play together over Bluetooth. One player picks Multiplayer › Host Game; the others pick Join Game and choose the host's phone.
 - The host picks the map, AI opponents and whether players team up against the AIs, then presses Start.
-- Multiplayer games can't be paused or saved. If a phone disconnects, its player resigns and the game carries on.
+- Multiplayer games can't be paused or saved.
+- If a phone loses its connection, its civilization keeps going while the phone shows Disconnected and reconnects by itself. Back within 2 minutes, the player carries on; otherwise they forfeit. A player whose app closed can rejoin from Join Game in that time.
         """.trimIndent()
     }
 }

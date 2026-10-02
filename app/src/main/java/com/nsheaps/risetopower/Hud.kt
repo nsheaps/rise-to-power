@@ -78,6 +78,7 @@ class Hud(private val view: GameView, private val world: World, private val huma
 
     fun hitPanel(x: Float, y: Float): Boolean {
         if (menu != Menu.NONE) return true
+        if (view.disconnectedSecondsLeft() != null) return true
         if (y < topH) return true
         for (p in panels) if (p.contains(x, y)) return true
         return false
@@ -132,8 +133,23 @@ class Hud(private val view: GameView, private val world: World, private val huma
         when (menu) {
             Menu.PAUSE -> drawPauseMenu(c)
             Menu.GAME_OVER, Menu.STATS -> drawGameOver(c)
-            Menu.NONE -> {}
+            Menu.NONE -> view.disconnectedSecondsLeft()?.let { drawDisconnected(c, it) }
         }
+    }
+
+    /** Covers the game while this phone's connection to the host is down. */
+    private fun drawDisconnected(c: Canvas, secondsLeft: Float) {
+        dim(c)
+        val pw = min(w - 40f * d, 480f * d)
+        val ph = 210f * d
+        val r = RectF(w / 2 - pw / 2, h / 2 - ph / 2, w / 2 + pw / 2, h / 2 + ph / 2)
+        panel(c, r, 0xF4)
+        panels += r
+        label(c, "Disconnected", r.centerX(), r.top + 44f * d, 28f, 0xFFFFB060.toInt(), Paint.Align.CENTER)
+        label(c, "Reconnecting to ${view.hostName()}…", r.centerX(), r.top + 78f * d, 16f, align = Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
+        label(c, "Your civilization keeps going without you.", r.centerX(), r.top + 106f * d, 14f, 0xFFBFAF90.toInt(), Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
+        label(c, "Forfeit in ${view.clock(secondsLeft)} unless you're back", r.centerX(), r.top + 130f * d, 14f, 0xFFBFAF90.toInt(), Paint.Align.CENTER, bold = false, maxWidth = pw - 30f * d)
+        menuButton(c, RectF(r.centerX() - 80f * d, r.bottom - 58f * d, r.centerX() + 80f * d, r.bottom - 14f * d), "Leave Game") { view.quitToMenu(save = false) }
     }
 
     private fun panel(c: Canvas, r: RectF, alpha: Int = 0xE0) {

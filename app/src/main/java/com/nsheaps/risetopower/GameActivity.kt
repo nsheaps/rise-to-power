@@ -28,6 +28,8 @@ class GameActivity : Activity() {
         private set
 
     private var loader: Thread? = null
+    /** Host of a networked game: the Bluetooth listener that lets dropped players back in. */
+    private var listener: java.io.Closeable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,10 +42,11 @@ class GameActivity : Activity() {
         val load = intent.getBooleanExtra(EXTRA_LOAD, false)
         val online = intent.getBooleanExtra(EXTRA_NET, false)
         val net = if (online) NetGame.take() else null
+        listener = net?.listener
         loader = Thread({
             val session = try {
                 // A networked game whose connection was lost (e.g. the app was restarted) can't resume.
-                if (online) net else (if (load) SaveStore.load(this) else newWorld())?.let { w ->
+                if (online) net?.session else (if (load) SaveStore.load(this) else newWorld())?.let { w ->
                     Lockstep.local(w, w.players.indexOfFirst { it.isHuman }.coerceAtLeast(0))
                 }
             } catch (e: Exception) {
@@ -150,6 +153,7 @@ class GameActivity : Activity() {
         super.onDestroy()
         // Leaving the screen ends a networked game for this device.
         view?.let { v -> if (v.multiplayer) Thread { v.session.leave() }.start() }
+        try { listener?.close() } catch (_: Exception) {}
         view?.layers?.recycle()
         sfx?.release()
     }

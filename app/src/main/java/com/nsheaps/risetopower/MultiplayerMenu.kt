@@ -172,7 +172,7 @@ class MultiplayerMenu(private val a: MainActivity) {
                     poll(150) {
                         val session = lobby.poll()
                         when {
-                            session != null -> { stopPolling(); joinLobby = null; launch(session) }
+                            session != null -> { stopPolling(); joinLobby = null; launch(session, d) }
                             lobby.closedReason != null -> { stopPolling(); joinLobby = null; status.text = lobby.closedReason; showDevices(list, seen, ::connect) }
                             else -> status.text = "Connected to $name. Waiting for the host to start…\nPlayers: ${lobby.players.joinToString(", ")}"
                         }
@@ -221,12 +221,20 @@ class MultiplayerMenu(private val a: MainActivity) {
 
     // ------------------------------------------------------------------ shared
 
-    private fun launch(session: Lockstep) {
+    /** Starts the game screen; a joined player reconnects to [host] if the connection drops. */
+    private fun launch(session: Lockstep, host: BluetoothDevice? = null) {
+        // The host keeps listening during the game so that players who drop out can come back.
+        val listener = if (session.isHost) server?.also { s -> s.onJoin = { link -> session.accept(link) } } else null
+        if (listener != null) server = null
+        if (host != null) {
+            val ctx = a.applicationContext
+            session.reconnect = { Bluetooth.connect(ctx, host) }
+        }
         // The connections now belong to the game; drop them from the lobby without closing.
         hostLobby = null
         joinLobby = null
         leave()
-        NetGame.hand(session)
+        NetGame.hand(session, listener)
         a.showMainMenu()
         a.startActivity(Intent(a, GameActivity::class.java).putExtra(GameActivity.EXTRA_NET, true))
     }

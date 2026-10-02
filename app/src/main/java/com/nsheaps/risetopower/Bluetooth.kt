@@ -77,33 +77,45 @@ object Bluetooth {
         throw last ?: IOException("Could not connect")
     }
 
-    /** Accepts players joining this phone's game until [close]d. */
-    class Server(ctx: Context, private val onJoin: (Link) -> Unit) {
-        // An unauthenticated listener also accepts phones that connect over a paired link.
-        private val sockets = listOfNotNull(
-            open { adapter(ctx)?.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID) },
-        )
+    /**
+     * Accepts players joining this phone's game until [close]d. It keeps listening during the
+     * game so that players whose connection dropped can come back; [onJoin] is swapped then.
+     */
+    class Server(ctx: Context, @Volatile var onJoin: (Link) -> Unit) : java.io.Closeable {
+        private val app = ctx.applicationContext
+        @Volatile private var socket: BluetoothServerSocket? = listen()
         @Volatile private var closed = false
 
-        val isListening get() = sockets.isNotEmpty() && !closed
+        val isListening get() = socket != null && !closed
 
         init {
-            for ((i, s) in sockets.withIndex()) {
-                Thread({
-                    while (!closed) {
-                        val socket = try { s.accept() } catch (e: IOException) { if (!closed) Log.w(TAG, "accept failed", e); break }
-                        onJoin(link(socket, "bt-guest"))
+            Thread({
+                while (!closed) {
+                    // An unauthenticated listener also accepts phones that connect over a paired link.
+                    val s = socket ?: listen().also { socket = it }
+                    if (s == null) { pause(); continue }
+                    val conn = try { s.accept() } catch (e: IOException) {
+                        if (closed) break
+                        // Bluetooth was switched off or restarted: listen again once it's back.
+                        Log.w(TAG, "accept failed", e)
+                        try { s.close() } catch (_: IOException) {}
+                        socket = null
+                        pause()
+                        continue
                     }
-                }, "bt-accept-$i").apply { isDaemon = true }.start()
-            }
+                    onJoin(link(conn, "bt-guest"))
+                }
+            }, "bt-accept").apply { isDaemon = true }.start()
         }
 
-        fun close() {
+        override fun close() {
             closed = true
-            for (s in sockets) try { s.close() } catch (_: IOException) {}
+            try { socket?.close() } catch (_: IOException) {}
         }
 
-        private fun open(f: () -> BluetoothServerSocket?): BluetoothServerSocket? =
-            try { f() } catch (e: Exception) { Log.w(TAG, "listen failed", e); null }
+        private fun listen(): BluetoothServerSocket? =
+            try { adapter(app)?.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID) } catch (e: Exception) { Log.w(TAG, "listen failed", e); null }
+
+        private fun pause() = try { Thread.sleep(2000) } catch (_: InterruptedException) {}
     }
 }

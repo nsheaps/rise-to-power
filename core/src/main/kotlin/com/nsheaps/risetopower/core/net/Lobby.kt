@@ -10,7 +10,7 @@ import com.nsheaps.risetopower.core.PlayerSetup
 import com.nsheaps.risetopower.core.World
 import java.util.concurrent.CopyOnWriteArrayList
 
-const val PROTOCOL_VERSION = 1
+const val PROTOCOL_VERSION = 2
 
 /** Options the host picks for a multiplayer game. */
 data class NetOptions(
@@ -32,6 +32,8 @@ data class NetOptions(
 class HostLobby(private val hostName: String, var hostCiv: Int, val maxGuests: Int = 3) {
     class Guest(val link: Link) {
         var name: String? = null
+        /** The name the player asked for, before it was made unique; used to recognise them rejoining. */
+        var joinName = ""
         var civ = 0
     }
 
@@ -65,7 +67,8 @@ class HostLobby(private val hostName: String, var hostCiv: Int, val maxGuests: I
                             g.link.send(Message.Bye("Different game versions: update both devices"))
                             (g.link as? StreamLink)?.flushAndClose() ?: g.link.close()
                         } else {
-                            g.name = uniqueName(m.name.take(20).ifBlank { "Player" }, g)
+                            g.joinName = m.name.take(20).ifBlank { "Player" }
+                            g.name = uniqueName(g.joinName, g)
                             g.civ = m.civ.coerceIn(0, Civ.entries.size - 1)
                             changed = true
                         }
@@ -120,7 +123,7 @@ class HostLobby(private val hostName: String, var hostCiv: Int, val maxGuests: I
             mapSize = options.mapSize, mapType = options.mapType, seed = options.seed, players = setups,
             startingResources = options.startingResources, wonderVictory = options.wonderVictory,
         )
-        val peers = guests.mapIndexed { i, g -> Lockstep.Peer(g.link, i + 1, g.name!!) }
+        val peers = guests.mapIndexed { i, g -> Lockstep.Peer(g.link, i + 1, g.name!!, g.joinName) }
         return Lockstep.host(World(settings), 0, peers)
     }
 

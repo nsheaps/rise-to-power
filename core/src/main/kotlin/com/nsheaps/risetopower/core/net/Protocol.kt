@@ -16,8 +16,11 @@ sealed class Message {
     data class Hello(val version: Int, val name: String, val civ: Int) : Message()
     /** Host tells joined players who is in the lobby. */
     data class Lobby(val names: List<String>) : Message()
-    /** The game starts: the receiver plays [playerId] in the world stored in [snapshot]. */
-    class Start(val playerId: Int, val turn: Int, val snapshot: ByteArray) : Message()
+    /**
+     * The game starts (or a player rejoins it): the receiver plays [playerId] in the world stored
+     * in [snapshot]. [token] lets that player prove who they are when rejoining.
+     */
+    class Start(val playerId: Int, val turn: Int, val snapshot: ByteArray, val token: Long = 0L) : Message()
     /** Everyone's state is replaced by [snapshot] at the start of [turn]. */
     class Resync(val turn: Int, val snapshot: ByteArray) : Message()
     /** A joined player's command, to be scheduled by the host. */
@@ -28,6 +31,12 @@ sealed class Message {
     data class Ack(val turn: Int, val checksum: Long) : Message()
     /** The sender is leaving (the host may give a [reason] such as a full lobby). */
     data class Bye(val reason: String) : Message()
+    /** A player who lost the connection asks to take [playerId] back. */
+    data class Rejoin(val version: Int, val playerId: Int, val token: Long) : Message()
+    /** Keeps a quiet connection from looking dead. */
+    object Ping : Message()
+    /** Players whose connection dropped, with the turn at which each forfeits unless back. */
+    data class Away(val players: List<Pair<Int, Int>>) : Message()
 
     fun encode(): ByteArray {
         val bytes = ByteArrayOutputStream()
@@ -35,7 +44,7 @@ sealed class Message {
         when (this) {
             is Hello -> { o.writeByte(1); o.writeInt(version); o.writeUTF(name); o.writeByte(civ) }
             is Lobby -> { o.writeByte(2); o.writeByte(names.size); names.forEach { o.writeUTF(it) } }
-            is Start -> { o.writeByte(3); o.writeByte(playerId); o.writeInt(turn); o.writeInt(snapshot.size); o.write(snapshot) }
+            is Start -> { o.writeByte(3); o.writeByte(playerId); o.writeInt(turn); o.writeLong(token); o.writeInt(snapshot.size); o.write(snapshot) }
             is Resync -> { o.writeByte(4); o.writeInt(turn); o.writeInt(snapshot.size); o.write(snapshot) }
             is Cmd -> { o.writeByte(5); command.write(o) }
             is Turn -> {
@@ -44,6 +53,9 @@ sealed class Message {
             }
             is Ack -> { o.writeByte(7); o.writeInt(turn); o.writeLong(checksum) }
             is Bye -> { o.writeByte(8); o.writeUTF(reason) }
+            is Rejoin -> { o.writeByte(9); o.writeInt(version); o.writeByte(playerId); o.writeLong(token) }
+            is Ping -> o.writeByte(10)
+            is Away -> { o.writeByte(11); o.writeByte(players.size); for ((p, t) in players) { o.writeByte(p); o.writeInt(t) } }
         }
         o.flush()
         return bytes.toByteArray()
@@ -60,7 +72,12 @@ sealed class Message {
             return when (val type = i.readUnsignedByte()) {
                 1 -> Hello(i.readInt(), i.readUTF(), i.readUnsignedByte())
                 2 -> Lobby(List(i.readUnsignedByte()) { i.readUTF() })
-                3 -> Start(i.readUnsignedByte(), i.readInt(), blob())
+                3 -> {
+                    val player = i.readUnsignedByte()
+                    val turn = i.readInt()
+                    val token = i.readLong()
+                    Start(player, turn, blob(), token)
+                }
                 4 -> Resync(i.readInt(), blob())
                 5 -> Cmd(Command.read(i))
                 6 -> {
@@ -69,6 +86,9 @@ sealed class Message {
                 }
                 7 -> Ack(i.readInt(), i.readLong())
                 8 -> Bye(i.readUTF())
+                9 -> Rejoin(i.readInt(), i.readUnsignedByte(), i.readLong())
+                10 -> Ping
+                11 -> Away(List(i.readUnsignedByte()) { i.readUnsignedByte() to i.readInt() })
                 else -> throw IllegalArgumentException("Unknown message $type")
             }
         }

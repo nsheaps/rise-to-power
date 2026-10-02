@@ -293,6 +293,7 @@ class GameView(private val activity: GameActivity, val session: Lockstep, privat
                 EventType.WONDER -> { h.message(e.text, 0xFFFFE070.toInt()); sfx.play(Sfx.Kind.ALERT) }
                 EventType.DEFEATED -> {
                     h.message(if (mine) "You have been defeated" else e.text, 0xFFFF8070.toInt())
+                    if (mine) session.forfeitReason?.let { lastVictoryMessage = it }
                     if (mine && !world.gameOver) {
                         sfx.play(Sfx.Kind.DEFEAT)
                         h.menu = Hud.Menu.GAME_OVER
@@ -741,10 +742,27 @@ class GameView(private val activity: GameActivity, val session: Lockstep, privat
         speedIndex = (speedIndex + 1) % speeds.size
     }
 
-    /** Shown while a networked game waits for another device, e.g. "Waiting for Ana…". */
+    /**
+     * Shown while a networked game waits for another device ("Waiting for Ana…") or while
+     * someone's connection is down ("Ben disconnected · 1:45 to rejoin").
+     */
     fun networkStatus(): String? {
+        if (session.reconnectSecondsLeft != null) return null // The disconnected screen says it all.
+        val away = session.away
+        if (away.isNotEmpty()) return away.joinToString("   ") { "${it.name} disconnected · ${clock(it.secondsLeft)} to rejoin" }
         val who = session.waitingFor ?: return null
         return if (session.stalledFor > 0.6f) "Waiting for $who…" else null
+    }
+
+    /** While this phone has lost its connection to the host: seconds left to get back in. */
+    fun disconnectedSecondsLeft(): Float? = session.reconnectSecondsLeft
+
+    /** Whose game this phone is trying to get back into. */
+    fun hostName(): String = session.waitingFor ?: "the host"
+
+    fun clock(seconds: Float): String {
+        val s = kotlin.math.ceil(seconds).toInt().coerceAtLeast(0)
+        return "%d:%02d".format(s / 60, s % 60)
     }
 
     fun togglePause() {
